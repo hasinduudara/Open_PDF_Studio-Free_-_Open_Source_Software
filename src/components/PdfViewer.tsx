@@ -12,12 +12,20 @@ interface PageItemProps {
   pdfDoc: pdfjsLib.PDFDocumentProxy;
   scale: number;
   rotation: number;
+  defaultPageSize: { width: number; height: number };
 }
 
 /**
  * Renders an individual PDF page onto a canvas with HiDPI support and rotation.
+ * Pre-sets container dimensions immediately to eliminate layout shifts.
  */
-function PdfPageItem({ pageNum, pdfDoc, scale, rotation }: PageItemProps) {
+function PdfPageItem({
+  pageNum,
+  pdfDoc,
+  scale,
+  rotation,
+  defaultPageSize,
+}: PageItemProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
   const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null);
@@ -32,10 +40,13 @@ function PdfPageItem({ pageNum, pdfDoc, scale, rotation }: PageItemProps) {
         const page = await pdfDoc.getPage(pageNum);
         if (isCancelled) return;
 
+        // Obtain exact viewport for this specific page immediately
         const viewport = page.getViewport({ scale, rotation });
         setPageSize({ width: viewport.width, height: viewport.height });
 
         const canvas = canvasRef.current;
+        if (!canvas) return;
+
         const context = canvas.getContext("2d", { alpha: false });
         if (!context) return;
 
@@ -87,14 +98,17 @@ function PdfPageItem({ pageNum, pdfDoc, scale, rotation }: PageItemProps) {
     };
   }, [pageNum, pdfDoc, scale, rotation]);
 
+  const width = pageSize ? pageSize.width : defaultPageSize.width;
+  const height = pageSize ? pageSize.height : defaultPageSize.height;
+
   return (
     <div
       id={`pdf-page-${pageNum}`}
       data-page-number={pageNum}
-      className="relative mb-6 rounded bg-white shadow-2xl transition-all duration-150"
+      className="relative mb-6 rounded bg-white shadow-2xl transition-shadow duration-150"
       style={{
-        width: pageSize ? `${pageSize.width}px` : "auto",
-        minHeight: pageSize ? `${pageSize.height}px` : "200px",
+        width: `${width}px`,
+        minHeight: `${height}px`,
       }}
     >
       <canvas ref={canvasRef} className="block rounded" />
@@ -106,20 +120,31 @@ function PdfPageItem({ pageNum, pdfDoc, scale, rotation }: PageItemProps) {
 }
 
 /**
- * Main PDF viewer component responsible for loading document proxy,
- * rendering all pages vertically, and tracking the active page on scroll.
+ * Main PDF viewer component.
+ * Distinguishes programmatic jumps from user manual scrolling to prevent feedback loops.
  */
 export default function PdfViewer() {
-  const { tabs, activeTabId, setNumPages, setPage, setPdfDoc } = usePdfStore();
+  const {
+    tabs,
+    activeTabId,
+    setNumPages,
+    setCurrentPageFromScroll,
+    clearScrollTarget,
+    setPdfDoc,
+  } = usePdfStore();
+
   const activeTab: PdfTab | undefined = tabs.find((t) => t.id === activeTabId);
 
   const [pdfDoc, setLocalPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [defaultPageSize, setDefaultPageSize] = useState<{ width: number; height: number }>({
+    width: 600,
+    height: 800,
+  });
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const isProgrammaticScrollRef = useRef<boolean>(false);
-  const programmaticScrollTimerRef = useRef<number | null>(null);
 
   // Load document whenever active tab changes
   useEffect(() => {
@@ -141,8 +166,24 @@ export default function PdfViewer() {
     });
 
     loadingTask.promise
-      .then((loadedDoc) => {
+      .then(async (loadedDoc) => {
         if (!isSubscribed) return;
+
+        try {
+          // Pre-fetch Page 1 to establish baseline dimensions and avoid initial layout shifts
+          const firstPage = await loadedDoc.getPage(1);
+          const initialVp = firstPage.getViewport({
+            scale: activeTab.scale,
+            rotation: activeTab.rotation,
+          });
+          setDefaultPageSize({
+            width: Math.floor(initialVp.width),
+            height: Math.floor(initialVp.height),
+          });
+        } catch (e) {
+          console.warn("Failed to pre-compute initial page dimensions:", e);
+        }
+
         setLocalPdfDoc(loadedDoc);
         setPdfDoc(loadedDoc);
         setNumPages(activeTab.id, loadedDoc.numPages);
@@ -163,38 +204,59 @@ export default function PdfViewer() {
     };
   }, [activeTab?.id, activeTab?.data, setNumPages, setPdfDoc]);
 
-  // Handle scrolling to page when currentPage changes externally (toolbar/thumbnail click)
+  // Recalculate baseline page dimensions when scale or rotation changes
   useEffect(() => {
-    if (!activeTab || !containerRef.current) return;
+    if (!pdfDoc || !activeTab) return;
 
-    const pageElement = document.getElementById(`pdf-page-${activeTab.currentPage}`);
-    if (pageElement && containerRef.current) {
-      // Check if page is already visible to avoid unnecessary scroll jitter
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const pageRect = pageElement.getBoundingClientRect();
-      const isAlreadyVisible =
-        pageRect.top >= containerRect.top &&
-        pageRect.bottom <= containerRect.bottom;
-
-      if (!isAlreadyVisible) {
-        isProgrammaticScrollRef.current = true;
-        if (programmaticScrollTimerRef.current) {
-          window.clearTimeout(programmaticScrollTimerRef.current);
-        }
-
-        pageElement.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
+    pdfDoc
+      .getPage(1)
+      .then((firstPage) => {
+        const vp = firstPage.getViewport({
+          scale: activeTab.scale,
+          rotation: activeTab.rotation,
         });
+        setDefaultPageSize({
+          width: Math.floor(vp.width),
+          height: Math.floor(vp.height),
+        });
+      })
+      .catch((e) => {
+        console.warn("Failed to update page baseline dimensions:", e);
+      });
+  }, [pdfDoc, activeTab?.scale, activeTab?.rotation]);
 
-        programmaticScrollTimerRef.current = window.setTimeout(() => {
+  // Handle Programmatic Scroll Jumps (ONLY triggered when scrollTargetPage is set)
+  const scrollTargetPage = activeTab?.scrollTargetPage;
+  useEffect(() => {
+    if (!scrollTargetPage || !containerRef.current) return;
+
+    const targetEl = document.getElementById(`pdf-page-${scrollTargetPage}`);
+    const container = containerRef.current;
+
+    if (targetEl && container) {
+      isProgrammaticScrollRef.current = true;
+
+      // Calculate relative offset within viewer container to prevent ancestor scroll shifts
+      const targetTop = targetEl.offsetTop - container.offsetTop - 16;
+
+      container.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: "instant",
+      });
+
+      // Clear the target so manual scrolling does not re-trigger this effect
+      clearScrollTarget();
+
+      // Release the programmatic scroll lock after rendering settles
+      requestAnimationFrame(() => {
+        setTimeout(() => {
           isProgrammaticScrollRef.current = false;
-        }, 700);
-      }
+        }, 80);
+      });
     }
-  }, [activeTab?.currentPage, activeTab?.id]);
+  }, [scrollTargetPage, clearScrollTarget]);
 
-  // Track page visibility with IntersectionObserver to update currentPage during scroll
+  // Track page visibility with IntersectionObserver during manual scrolling
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !activeTab || !pdfDoc) return;
@@ -206,6 +268,7 @@ export default function PdfViewer() {
 
     const observer = new IntersectionObserver(
       (entries) => {
+        // Disregard observer events caused by programmatic instant jumps
         if (isProgrammaticScrollRef.current) return;
 
         entries.forEach((entry) => {
@@ -217,7 +280,7 @@ export default function PdfViewer() {
           }
         });
 
-        // Find the page with highest intersection ratio in viewport
+        // Identify the page with highest viewport ratio
         let bestPage = activeTab.currentPage;
         let highestRatio = 0;
 
@@ -228,8 +291,9 @@ export default function PdfViewer() {
           }
         });
 
+        // Update currentPage in the store WITHOUT setting scrollTargetPage
         if (bestPage !== activeTab.currentPage && highestRatio > 0.15) {
-          setPage(activeTab.id, bestPage);
+          setCurrentPageFromScroll(bestPage);
         }
       },
       {
@@ -243,7 +307,7 @@ export default function PdfViewer() {
     return () => {
       observer.disconnect();
     };
-  }, [pdfDoc, activeTab?.id, activeTab?.scale, activeTab?.rotation, setPage]);
+  }, [pdfDoc, activeTab?.id, activeTab?.scale, activeTab?.rotation, setCurrentPageFromScroll]);
 
   if (loading) {
     return (
@@ -284,6 +348,7 @@ export default function PdfViewer() {
             pdfDoc={pdfDoc}
             scale={activeTab.scale}
             rotation={activeTab.rotation}
+            defaultPageSize={defaultPageSize}
           />
         ))}
       </div>

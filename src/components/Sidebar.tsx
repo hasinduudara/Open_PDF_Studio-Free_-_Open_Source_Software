@@ -15,6 +15,7 @@ interface ThumbnailProps {
   pdfDoc: pdfjsLib.PDFDocumentProxy;
   rotation: number;
   isActive: boolean;
+  tabId: string;
   onSelect: (pageNum: number) => void;
 }
 
@@ -27,6 +28,7 @@ function ThumbnailItem({
   pdfDoc,
   rotation,
   isActive,
+  tabId,
   onSelect,
 }: ThumbnailProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -36,16 +38,6 @@ function ThumbnailItem({
   const [isVisible, setIsVisible] = useState<boolean>(false);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [isRendered, setIsRendered] = useState<boolean>(false);
-
-  // Auto-scroll the thumbnail into view if it becomes active
-  useEffect(() => {
-    if (isActive && containerRef.current) {
-      containerRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
-    }
-  }, [isActive]);
 
   // Set up intersection observer for lazy rendering
   useEffect(() => {
@@ -85,7 +77,7 @@ function ThumbnailItem({
         const page = await pdfDoc.getPage(pageNum);
         if (isCancelled) return;
 
-        // Use fixed scale (~0.2) to fit thumbnail panel nicely
+        // Use fixed scale (~0.22) to fit thumbnail panel nicely
         const viewport = page.getViewport({ scale: 0.22, rotation });
         setDimensions({ width: viewport.width, height: viewport.height });
 
@@ -146,6 +138,7 @@ function ThumbnailItem({
 
   return (
     <div
+      id={`thumb-item-${tabId}-${pageNum}`}
       ref={containerRef}
       onClick={() => onSelect(pageNum)}
       className="flex flex-col items-center cursor-pointer group py-2"
@@ -305,7 +298,7 @@ export default function Sidebar() {
     isSidebarOpen,
     sidebarTab,
     setSidebarTab,
-    setPage,
+    jumpToPage,
     pdfDoc,
   } = usePdfStore();
 
@@ -313,6 +306,31 @@ export default function Sidebar() {
 
   const [outline, setOutline] = useState<OutlineNode[] | null>(null);
   const [outlineLoading, setOutlineLoading] = useState<boolean>(false);
+
+  // Dedicated ref for the scrollable sidebar panel
+  const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll only the sidebar container when the active page changes
+  useEffect(() => {
+    if (sidebarTab !== "thumbnails" || !sidebarScrollRef.current || !activeTab) return;
+
+    const activeEl = document.getElementById(`thumb-item-${activeTab.id}-${activeTab.currentPage}`);
+    const container = sidebarScrollRef.current;
+    if (!activeEl || !container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const elRect = activeEl.getBoundingClientRect();
+
+    // Scroll only if the thumbnail is outside the visible boundaries of the sidebar
+    if (elRect.top < containerRect.top || elRect.bottom > containerRect.bottom) {
+      const targetTop =
+        activeEl.offsetTop - container.offsetTop - (container.clientHeight / 2 - activeEl.clientHeight / 2);
+      container.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: "instant",
+      });
+    }
+  }, [activeTab?.currentPage, activeTab?.id, sidebarTab]);
 
   // Load PDF outline whenever pdfDoc changes
   useEffect(() => {
@@ -386,7 +404,7 @@ export default function Sidebar() {
       </div>
 
       {/* Tab Content Panel */}
-      <div className="flex-1 overflow-y-auto p-3">
+      <div ref={sidebarScrollRef} className="flex-1 overflow-y-auto p-3">
         {sidebarTab === "thumbnails" && (
           <div className="space-y-2">
             {pdfDoc &&
@@ -397,7 +415,8 @@ export default function Sidebar() {
                   pdfDoc={pdfDoc}
                   rotation={activeTab.rotation}
                   isActive={pageNum === activeTab.currentPage}
-                  onSelect={(p) => setPage(activeTab.id, p)}
+                  tabId={activeTab.id}
+                  onSelect={(p) => jumpToPage(p)}
                 />
               ))}
           </div>
@@ -431,7 +450,7 @@ export default function Sidebar() {
                     key={`outline-${node.title}-${idx}`}
                     node={node}
                     pdfDoc={pdfDoc}
-                    onNavigate={(p) => setPage(activeTab.id, p)}
+                    onNavigate={(p) => jumpToPage(p)}
                     depth={0}
                   />
                 ))}

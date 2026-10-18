@@ -13,6 +13,7 @@ export interface PdfTab {
   numPages: number;
   scale: number;
   rotation: number; // 0, 90, 180, 270 degrees
+  scrollTargetPage: number | null; // Non-null only when a programmatic scroll is requested
 }
 
 export type SidebarTab = "thumbnails" | "outline";
@@ -44,6 +45,7 @@ export interface PdfState {
     numPages?: number;
     scale?: number;
     rotation?: number;
+    scrollTargetPage?: number | null;
   }) => void;
 
   /**
@@ -57,7 +59,23 @@ export interface PdfState {
   setActiveTab: (id: string) => void;
 
   /**
-   * Updates the current page for a specific tab.
+   * Only updates currentPage (used by scroll/IntersectionObserver during manual scrolling).
+   * Does NOT trigger programmatic scrolling.
+   */
+  setCurrentPageFromScroll: (page: number) => void;
+
+  /**
+   * Updates currentPage AND sets scrollTargetPage to trigger programmatic scroll in viewer.
+   */
+  jumpToPage: (page: number) => void;
+
+  /**
+   * Resets scrollTargetPage to null after the viewer completes the programmatic scroll.
+   */
+  clearScrollTarget: () => void;
+
+  /**
+   * Updates the current page and requests a programmatic jump for a specific tab.
    */
   setPage: (tabId: string, page: number) => void;
 
@@ -125,6 +143,7 @@ export const usePdfStore = create<PdfState>((set, get) => ({
       numPages: tabData.numPages ?? 0,
       scale: tabData.scale ?? 1.2,
       rotation: tabData.rotation ?? 0,
+      scrollTargetPage: null,
     };
 
     set({
@@ -162,13 +181,53 @@ export const usePdfStore = create<PdfState>((set, get) => ({
     set({ activeTabId: id });
   },
 
+  setCurrentPageFromScroll: (page) => {
+    const { activeTabId } = get();
+    if (!activeTabId) return;
+
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== activeTabId) return tab;
+        const targetPage =
+          tab.numPages > 0 ? Math.max(1, Math.min(page, tab.numPages)) : Math.max(1, page);
+        if (tab.currentPage === targetPage) return tab;
+        return { ...tab, currentPage: targetPage };
+      }),
+    }));
+  },
+
+  jumpToPage: (page) => {
+    const { activeTabId } = get();
+    if (!activeTabId) return;
+
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== activeTabId) return tab;
+        const targetPage =
+          tab.numPages > 0 ? Math.max(1, Math.min(page, tab.numPages)) : Math.max(1, page);
+        return { ...tab, currentPage: targetPage, scrollTargetPage: targetPage };
+      }),
+    }));
+  },
+
+  clearScrollTarget: () => {
+    const { activeTabId } = get();
+    if (!activeTabId) return;
+
+    set((state) => ({
+      tabs: state.tabs.map((tab) =>
+        tab.id === activeTabId ? { ...tab, scrollTargetPage: null } : tab
+      ),
+    }));
+  },
+
   setPage: (tabId, page) => {
     set((state) => ({
       tabs: state.tabs.map((tab) => {
         if (tab.id !== tabId) return tab;
         const targetPage =
           tab.numPages > 0 ? Math.max(1, Math.min(page, tab.numPages)) : Math.max(1, page);
-        return { ...tab, currentPage: targetPage };
+        return { ...tab, currentPage: targetPage, scrollTargetPage: targetPage };
       }),
     }));
   },

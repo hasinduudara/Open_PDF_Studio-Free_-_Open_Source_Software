@@ -24,7 +24,7 @@ export default function Toolbar() {
     tabs,
     activeTabId,
     addTab,
-    setPage,
+    jumpToPage,
     setScale,
     rotateClockwise,
     isSidebarOpen,
@@ -76,7 +76,7 @@ export default function Toolbar() {
    */
   function handlePrevPage() {
     if (!activeTab || activeTab.currentPage <= 1) return;
-    setPage(activeTab.id, activeTab.currentPage - 1);
+    jumpToPage(activeTab.currentPage - 1);
   }
 
   /**
@@ -84,7 +84,7 @@ export default function Toolbar() {
    */
   function handleNextPage() {
     if (!activeTab || activeTab.currentPage >= activeTab.numPages) return;
-    setPage(activeTab.id, activeTab.currentPage + 1);
+    jumpToPage(activeTab.currentPage + 1);
   }
 
   /**
@@ -94,7 +94,7 @@ export default function Toolbar() {
     if (!activeTab) return;
     const parsedPage = parseInt(pageInput, 10);
     if (!isNaN(parsedPage)) {
-      setPage(activeTab.id, parsedPage);
+      jumpToPage(parsedPage);
     } else {
       setPageInput(String(activeTab.currentPage));
     }
