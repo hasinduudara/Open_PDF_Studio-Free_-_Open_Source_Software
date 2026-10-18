@@ -11,12 +11,13 @@ interface PageItemProps {
   pageNum: number;
   pdfDoc: pdfjsLib.PDFDocumentProxy;
   scale: number;
+  rotation: number;
 }
 
 /**
- * Renders an individual PDF page onto a canvas with HiDPI support.
+ * Renders an individual PDF page onto a canvas with HiDPI support and rotation.
  */
-function PdfPageItem({ pageNum, pdfDoc, scale }: PageItemProps) {
+function PdfPageItem({ pageNum, pdfDoc, scale, rotation }: PageItemProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
   const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null);
@@ -31,7 +32,7 @@ function PdfPageItem({ pageNum, pdfDoc, scale }: PageItemProps) {
         const page = await pdfDoc.getPage(pageNum);
         if (isCancelled) return;
 
-        const viewport = page.getViewport({ scale });
+        const viewport = page.getViewport({ scale, rotation });
         setPageSize({ width: viewport.width, height: viewport.height });
 
         const canvas = canvasRef.current;
@@ -84,7 +85,7 @@ function PdfPageItem({ pageNum, pdfDoc, scale }: PageItemProps) {
         }
       }
     };
-  }, [pageNum, pdfDoc, scale]);
+  }, [pageNum, pdfDoc, scale, rotation]);
 
   return (
     <div
@@ -97,7 +98,7 @@ function PdfPageItem({ pageNum, pdfDoc, scale }: PageItemProps) {
       }}
     >
       <canvas ref={canvasRef} className="block rounded" />
-      <div className="absolute bottom-2 right-2 rounded bg-neutral-900/60 px-1.5 py-0.5 text-[10px] font-mono text-white/70 backdrop-blur-sm">
+      <div className="absolute bottom-2 right-2 rounded bg-neutral-900/60 px-1.5 py-0.5 text-[10px] font-mono text-white/70 backdrop-blur-sm pointer-events-none">
         {pageNum}
       </div>
     </div>
@@ -109,10 +110,10 @@ function PdfPageItem({ pageNum, pdfDoc, scale }: PageItemProps) {
  * rendering all pages vertically, and tracking the active page on scroll.
  */
 export default function PdfViewer() {
-  const { tabs, activeTabId, setNumPages, setPage } = usePdfStore();
+  const { tabs, activeTabId, setNumPages, setPage, setPdfDoc } = usePdfStore();
   const activeTab: PdfTab | undefined = tabs.find((t) => t.id === activeTabId);
 
-  const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
+  const [pdfDoc, setLocalPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -123,6 +124,7 @@ export default function PdfViewer() {
   // Load document whenever active tab changes
   useEffect(() => {
     if (!activeTab || !activeTab.data) {
+      setLocalPdfDoc(null);
       setPdfDoc(null);
       return;
     }
@@ -141,6 +143,7 @@ export default function PdfViewer() {
     loadingTask.promise
       .then((loadedDoc) => {
         if (!isSubscribed) return;
+        setLocalPdfDoc(loadedDoc);
         setPdfDoc(loadedDoc);
         setNumPages(activeTab.id, loadedDoc.numPages);
         setLoading(false);
@@ -149,6 +152,8 @@ export default function PdfViewer() {
         if (!isSubscribed) return;
         console.error("Failed to load PDF document:", err);
         setErrorMsg("Failed to parse and load PDF document.");
+        setLocalPdfDoc(null);
+        setPdfDoc(null);
         setLoading(false);
       });
 
@@ -156,57 +161,89 @@ export default function PdfViewer() {
       isSubscribed = false;
       loadingTask.destroy();
     };
-  }, [activeTab?.id, activeTab?.data, setNumPages]);
+  }, [activeTab?.id, activeTab?.data, setNumPages, setPdfDoc]);
 
-  // Handle scrolling to page when currentPage changes from toolbar
+  // Handle scrolling to page when currentPage changes externally (toolbar/thumbnail click)
   useEffect(() => {
     if (!activeTab || !containerRef.current) return;
 
     const pageElement = document.getElementById(`pdf-page-${activeTab.currentPage}`);
     if (pageElement && containerRef.current) {
-      // Mark programmatic scroll to prevent feedback loop in scroll listener
-      isProgrammaticScrollRef.current = true;
-      if (programmaticScrollTimerRef.current) {
-        window.clearTimeout(programmaticScrollTimerRef.current);
+      // Check if page is already visible to avoid unnecessary scroll jitter
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const pageRect = pageElement.getBoundingClientRect();
+      const isAlreadyVisible =
+        pageRect.top >= containerRect.top &&
+        pageRect.bottom <= containerRect.bottom;
+
+      if (!isAlreadyVisible) {
+        isProgrammaticScrollRef.current = true;
+        if (programmaticScrollTimerRef.current) {
+          window.clearTimeout(programmaticScrollTimerRef.current);
+        }
+
+        pageElement.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+
+        programmaticScrollTimerRef.current = window.setTimeout(() => {
+          isProgrammaticScrollRef.current = false;
+        }, 700);
       }
-
-      pageElement.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-
-      programmaticScrollTimerRef.current = window.setTimeout(() => {
-        isProgrammaticScrollRef.current = false;
-      }, 600);
     }
   }, [activeTab?.currentPage, activeTab?.id]);
 
-  // Track user scroll position to update current page in store
-  function handleScroll() {
-    if (isProgrammaticScrollRef.current || !containerRef.current || !activeTab || !pdfDoc) {
-      return;
-    }
+  // Track page visibility with IntersectionObserver to update currentPage during scroll
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !activeTab || !pdfDoc) return;
 
-    const containerTop = containerRef.current.getBoundingClientRect().top;
-    const pageElements = containerRef.current.querySelectorAll("[data-page-number]");
+    const pageElements = container.querySelectorAll("[data-page-number]");
+    if (pageElements.length === 0) return;
 
-    let closestPageNum = activeTab.currentPage;
-    let minDistance = Infinity;
+    const visibilityMap = new Map<number, number>();
 
-    pageElements.forEach((el) => {
-      const rect = el.getBoundingClientRect();
-      const distance = Math.abs(rect.top - containerTop - 40);
-      if (distance < minDistance) {
-        minDistance = distance;
-        const pageNum = parseInt(el.getAttribute("data-page-number") || "1", 10);
-        closestPageNum = pageNum;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (isProgrammaticScrollRef.current) return;
+
+        entries.forEach((entry) => {
+          const pageNum = parseInt(entry.target.getAttribute("data-page-number") || "1", 10);
+          if (entry.isIntersecting) {
+            visibilityMap.set(pageNum, entry.intersectionRatio);
+          } else {
+            visibilityMap.delete(pageNum);
+          }
+        });
+
+        // Find the page with highest intersection ratio in viewport
+        let bestPage = activeTab.currentPage;
+        let highestRatio = 0;
+
+        visibilityMap.forEach((ratio, pageNum) => {
+          if (ratio > highestRatio) {
+            highestRatio = ratio;
+            bestPage = pageNum;
+          }
+        });
+
+        if (bestPage !== activeTab.currentPage && highestRatio > 0.15) {
+          setPage(activeTab.id, bestPage);
+        }
+      },
+      {
+        root: container,
+        threshold: [0.1, 0.3, 0.6, 0.9],
       }
-    });
+    );
 
-    if (closestPageNum !== activeTab.currentPage) {
-      setPage(activeTab.id, closestPageNum);
-    }
-  }
+    pageElements.forEach((el) => observer.observe(el));
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [pdfDoc, activeTab?.id, activeTab?.scale, activeTab?.rotation, setPage]);
 
   if (loading) {
     return (
@@ -235,17 +272,18 @@ export default function PdfViewer() {
 
   return (
     <div
+      id="pdf-viewer-container"
       ref={containerRef}
-      onScroll={handleScroll}
       className="flex flex-1 justify-center overflow-y-auto bg-neutral-900/90 py-8 px-4"
     >
       <div className="flex flex-col items-center">
         {pageNumbers.map((pageNum) => (
           <PdfPageItem
-            key={`${activeTab.id}-p${pageNum}-${activeTab.scale}`}
+            key={`${activeTab.id}-p${pageNum}-${activeTab.scale}-${activeTab.rotation}`}
             pageNum={pageNum}
             pdfDoc={pdfDoc}
             scale={activeTab.scale}
+            rotation={activeTab.rotation}
           />
         ))}
       </div>

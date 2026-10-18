@@ -6,20 +6,35 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  RotateCw,
+  PanelLeft,
+  Maximize,
+  MoveHorizontal,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { usePdfStore } from "../store/usePdfStore";
 
 /**
- * Top application toolbar providing file opening, page navigation,
- * and zoom adjustment controls for the active PDF tab.
+ * Top application toolbar providing sidebar toggle, file opening,
+ * page navigation, rotation, and zoom/fit controls.
  */
 export default function Toolbar() {
-  const { tabs, activeTabId, addTab, setPage, setScale } = usePdfStore();
+  const {
+    tabs,
+    activeTabId,
+    addTab,
+    setPage,
+    setScale,
+    rotateClockwise,
+    isSidebarOpen,
+    toggleSidebar,
+    pdfDoc,
+  } = usePdfStore();
+
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
-  // Local state for the editable page input to allow typing without jitter
+  // Local state for the editable page input
   const [pageInput, setPageInput] = useState<string>("1");
 
   useEffect(() => {
@@ -29,8 +44,7 @@ export default function Toolbar() {
   }, [activeTab?.currentPage, activeTab?.id]);
 
   /**
-   * Prompts the user to select a PDF file using Tauri's native dialog,
-   * reads its binary data, and opens it as a new tab in the store.
+   * Prompts user to select a PDF file, reads binary data, and opens as a new tab.
    */
   async function handleOpenFile() {
     try {
@@ -44,10 +58,7 @@ export default function Toolbar() {
       const filePath = typeof selected === "string" ? selected : selected[0];
       if (!filePath) return;
 
-      // Extract filename from the selected file path
       const fileName = filePath.split(/[/\\]/).pop() || "Document.pdf";
-
-      // Read file binary content as Uint8Array
       const fileData = await readFile(filePath);
 
       addTab({
@@ -113,10 +124,70 @@ export default function Toolbar() {
     setScale(activeTab.id, 1.0);
   }
 
+  /**
+   * Rotates the active document pages clockwise by 90 degrees.
+   */
+  function handleRotate() {
+    if (!activeTab) return;
+    rotateClockwise(activeTab.id);
+  }
+
+  /**
+   * Calculates scale to fit the active page horizontally within the viewer container.
+   */
+  async function handleFitWidth() {
+    if (!activeTab || !pdfDoc) return;
+    try {
+      const page = await pdfDoc.getPage(activeTab.currentPage || 1);
+      const baseViewport = page.getViewport({ scale: 1.0, rotation: activeTab.rotation });
+      const viewerContainer = document.getElementById("pdf-viewer-container");
+      const availableWidth = viewerContainer ? viewerContainer.clientWidth - 64 : 800;
+      const fitWidthScale = Math.max(0.25, Math.min(availableWidth / baseViewport.width, 5.0));
+      setScale(activeTab.id, Math.round(fitWidthScale * 100) / 100);
+    } catch (e) {
+      console.error("Failed to fit width:", e);
+    }
+  }
+
+  /**
+   * Calculates scale to fit the entire active page within the viewer container.
+   */
+  async function handleFitPage() {
+    if (!activeTab || !pdfDoc) return;
+    try {
+      const page = await pdfDoc.getPage(activeTab.currentPage || 1);
+      const baseViewport = page.getViewport({ scale: 1.0, rotation: activeTab.rotation });
+      const viewerContainer = document.getElementById("pdf-viewer-container");
+      const availableWidth = viewerContainer ? viewerContainer.clientWidth - 64 : 800;
+      const availableHeight = viewerContainer ? viewerContainer.clientHeight - 64 : 800;
+      const scaleW = availableWidth / baseViewport.width;
+      const scaleH = availableHeight / baseViewport.height;
+      const fitPageScale = Math.max(0.25, Math.min(Math.min(scaleW, scaleH), 5.0));
+      setScale(activeTab.id, Math.round(fitPageScale * 100) / 100);
+    } catch (e) {
+      console.error("Failed to fit page:", e);
+    }
+  }
+
   return (
     <div className="flex h-11 items-center justify-between border-b border-neutral-800 bg-neutral-900/90 px-3 text-xs backdrop-blur-md select-none">
-      {/* File Action Controls */}
+      {/* Left controls: Sidebar toggle & Open button */}
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className={`rounded p-1.5 transition-colors ${
+            isSidebarOpen
+              ? "bg-neutral-800 text-neutral-100"
+              : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+          }`}
+          title={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+        >
+          <PanelLeft className="h-4 w-4" />
+        </button>
+
+        <div className="h-4 w-[1px] bg-neutral-800" />
+
         <button
           type="button"
           onClick={handleOpenFile}
@@ -171,8 +242,48 @@ export default function Toolbar() {
         </button>
       </div>
 
-      {/* Zoom Controls */}
+      {/* Zoom, Rotation, and Fit Controls */}
       <div className="flex items-center gap-1">
+        {/* Rotate Button */}
+        <button
+          type="button"
+          onClick={handleRotate}
+          disabled={!activeTab}
+          className="rounded p-1.5 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
+          title="Rotate 90° Clockwise"
+        >
+          <RotateCw className="h-4 w-4" />
+        </button>
+
+        <div className="h-4 w-[1px] bg-neutral-800 mx-0.5" />
+
+        {/* Fit to Width Button */}
+        <button
+          type="button"
+          onClick={handleFitWidth}
+          disabled={!activeTab}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
+          title="Fit to Width"
+        >
+          <MoveHorizontal className="h-3.5 w-3.5" />
+          <span className="text-[11px]">Fit Width</span>
+        </button>
+
+        {/* Fit to Page Button */}
+        <button
+          type="button"
+          onClick={handleFitPage}
+          disabled={!activeTab}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
+          title="Fit to Page"
+        >
+          <Maximize className="h-3.5 w-3.5" />
+          <span className="text-[11px]">Fit Page</span>
+        </button>
+
+        <div className="h-4 w-[1px] bg-neutral-800 mx-0.5" />
+
+        {/* Zoom Out */}
         <button
           type="button"
           onClick={handleZoomOut}
@@ -183,16 +294,18 @@ export default function Toolbar() {
           <ZoomOut className="h-4 w-4" />
         </button>
 
+        {/* Zoom Percentage */}
         <button
           type="button"
           onClick={handleResetZoom}
           disabled={!activeTab}
           className="min-w-[48px] rounded px-1.5 py-0.5 font-mono text-center text-[11px] text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
-          title="Click to reset zoom to 100%"
+          title="Reset zoom to 100%"
         >
           {activeTab ? `${Math.round(activeTab.scale * 100)}%` : "100%"}
         </button>
 
+        {/* Zoom In */}
         <button
           type="button"
           onClick={handleZoomIn}
@@ -203,6 +316,7 @@ export default function Toolbar() {
           <ZoomIn className="h-4 w-4" />
         </button>
 
+        {/* Reset Zoom */}
         <button
           type="button"
           onClick={handleResetZoom}

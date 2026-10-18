@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type * as pdfjsLib from "pdfjs-dist";
 
 /**
  * Represents an open PDF document tab in the application.
@@ -11,14 +12,25 @@ export interface PdfTab {
   currentPage: number;
   numPages: number;
   scale: number;
+  rotation: number; // 0, 90, 180, 270 degrees
 }
 
+export type SidebarTab = "thumbnails" | "outline";
+
 /**
- * Zustand state and actions for managing multi-tab PDF documents.
+ * Zustand state and actions for managing multi-tab PDF documents and layout.
  */
 export interface PdfState {
   tabs: PdfTab[];
   activeTabId: string | null;
+  isSidebarOpen: boolean;
+  sidebarTab: SidebarTab;
+  pdfDoc: pdfjsLib.PDFDocumentProxy | null;
+
+  /**
+   * Updates the currently active PDF document proxy reference.
+   */
+  setPdfDoc: (doc: pdfjsLib.PDFDocumentProxy | null) => void;
 
   /**
    * Adds a new tab or activates an existing tab if the file path is already open.
@@ -31,6 +43,7 @@ export interface PdfState {
     currentPage?: number;
     numPages?: number;
     scale?: number;
+    rotation?: number;
   }) => void;
 
   /**
@@ -57,11 +70,38 @@ export interface PdfState {
    * Updates the zoom scale for a specific tab.
    */
   setScale: (tabId: string, scale: number) => void;
+
+  /**
+   * Rotates the tab's pages clockwise by 90 degrees.
+   */
+  rotateClockwise: (tabId: string) => void;
+
+  /**
+   * Rotates the tab's pages counter-clockwise by 90 degrees.
+   */
+  rotateCounterClockwise: (tabId: string) => void;
+
+  /**
+   * Toggles visibility of the left sidebar.
+   */
+  toggleSidebar: () => void;
+
+  /**
+   * Sets the active tab inside the left sidebar (thumbnails or outline).
+   */
+  setSidebarTab: (tab: SidebarTab) => void;
 }
 
 export const usePdfStore = create<PdfState>((set, get) => ({
   tabs: [],
   activeTabId: null,
+  isSidebarOpen: true,
+  sidebarTab: "thumbnails",
+  pdfDoc: null,
+
+  setPdfDoc: (doc) => {
+    set({ pdfDoc: doc });
+  },
 
   addTab: (tabData) => {
     const { tabs } = get();
@@ -84,6 +124,7 @@ export const usePdfStore = create<PdfState>((set, get) => ({
       currentPage: tabData.currentPage ?? 1,
       numPages: tabData.numPages ?? 0,
       scale: tabData.scale ?? 1.2,
+      rotation: tabData.rotation ?? 0,
     };
 
     set({
@@ -113,6 +154,7 @@ export const usePdfStore = create<PdfState>((set, get) => ({
     set({
       tabs: remainingTabs,
       activeTabId: nextActiveTabId,
+      pdfDoc: nextActiveTabId === null ? null : get().pdfDoc,
     });
   },
 
@@ -143,5 +185,33 @@ export const usePdfStore = create<PdfState>((set, get) => ({
     set((state) => ({
       tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, scale: clampedScale } : tab)),
     }));
+  },
+
+  rotateClockwise: (tabId) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== tabId) return tab;
+        const newRotation = (tab.rotation + 90) % 360;
+        return { ...tab, rotation: newRotation };
+      }),
+    }));
+  },
+
+  rotateCounterClockwise: (tabId) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== tabId) return tab;
+        const newRotation = (tab.rotation + 270) % 360;
+        return { ...tab, rotation: newRotation };
+      }),
+    }));
+  },
+
+  toggleSidebar: () => {
+    set((state) => ({ isSidebarOpen: !state.isSidebarOpen }));
+  },
+
+  setSidebarTab: (tab) => {
+    set({ sidebarTab: tab });
   },
 }));
