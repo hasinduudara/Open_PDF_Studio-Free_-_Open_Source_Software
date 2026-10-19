@@ -155,6 +155,16 @@ function PdfPageItem({
     };
   }, [pageNum, pdfDoc, scale, rotation]);
 
+  // Center active search match when this page finishes loading text items
+  useEffect(() => {
+    if (textItems.length > 0) {
+      const activeEl = document.getElementById("active-search-match");
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: "instant", block: "center" });
+      }
+    }
+  }, [textItems, currentMatchIndex]);
+
   const width = pageSize ? pageSize.width : defaultPageSize.width;
   const height = pageSize ? pageSize.height : defaultPageSize.height;
 
@@ -189,7 +199,7 @@ function PdfPageItem({
 
       {/* Selectable and Search-Highlightable Text Layer */}
       <div
-        className="absolute inset-0 overflow-hidden pointer-events-auto select-text"
+        className="pdf-text-layer absolute inset-0 overflow-hidden pointer-events-auto select-text"
         style={{
           width: `${width}px`,
           height: `${height}px`,
@@ -249,6 +259,8 @@ function PdfPageItem({
                     fontFamily: item.fontName,
                     lineHeight: 1,
                     whiteSpace: "pre",
+                    color: "transparent",
+                    opacity: 1,
                     transformOrigin: "left top",
                     transform: item.angle !== 0 ? `rotate(${item.angle}rad)` : undefined,
                   }}
@@ -261,9 +273,10 @@ function PdfPageItem({
                       return (
                         <mark
                           key={pIdx}
-                          className={`rounded-xs text-transparent selection:text-transparent ${
+                          id={isActiveMatch ? "active-search-match" : undefined}
+                          className={`rounded-xs text-transparent ${
                             isActiveMatch
-                              ? "bg-orange-500/80 ring-1 ring-orange-400"
+                              ? "bg-orange-500/80 ring-2 ring-orange-400 font-semibold"
                               : "bg-yellow-400/60"
                           }`}
                         >
@@ -272,7 +285,7 @@ function PdfPageItem({
                       );
                     }
                     return (
-                      <span key={pIdx} className="text-transparent selection:text-transparent">
+                      <span key={pIdx} style={{ color: "transparent" }}>
                         {p.text}
                       </span>
                     );
@@ -286,7 +299,6 @@ function PdfPageItem({
           return (
             <span
               key={idx}
-              className="text-transparent selection:text-transparent"
               style={{
                 position: "absolute",
                 left: `${item.left}px`,
@@ -295,6 +307,8 @@ function PdfPageItem({
                 fontFamily: item.fontName,
                 lineHeight: 1,
                 whiteSpace: "pre",
+                color: "transparent",
+                opacity: 1,
                 transformOrigin: "left top",
                 transform: item.angle !== 0 ? `rotate(${item.angle}rad)` : undefined,
               }}
@@ -315,7 +329,7 @@ function PdfPageItem({
 
 /**
  * Main PDF viewer component.
- * Distinguishes programmatic jumps from user manual scrolling and embeds search bar.
+ * Distinguishes programmatic jumps from user manual scrolling and embeds fixed search bar.
  */
 export default function PdfViewer() {
   const {
@@ -325,6 +339,8 @@ export default function PdfViewer() {
     setCurrentPageFromScroll,
     clearScrollTarget,
     setPdfDoc,
+    currentMatchIndex,
+    searchMatches,
   } = usePdfStore();
 
   const activeTab: PdfTab | undefined = tabs.find((t) => t.id === activeTabId);
@@ -443,6 +459,27 @@ export default function PdfViewer() {
     }
   }, [scrollTargetPage, clearScrollTarget]);
 
+  // Scroll active search match element into center of view
+  useEffect(() => {
+    if (searchMatches.length === 0) return;
+
+    const timer = setTimeout(() => {
+      const activeMatchEl = document.getElementById("active-search-match");
+      if (activeMatchEl) {
+        isProgrammaticScrollRef.current = true;
+        activeMatchEl.scrollIntoView({ behavior: "instant", block: "center" });
+
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            isProgrammaticScrollRef.current = false;
+          }, 80);
+        });
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [currentMatchIndex, searchMatches]);
+
   // Track page visibility with IntersectionObserver during manual scrolling
   useEffect(() => {
     const container = containerRef.current;
@@ -519,25 +556,28 @@ export default function PdfViewer() {
   const pageNumbers = Array.from({ length: pdfDoc.numPages }, (_, i) => i + 1);
 
   return (
-    <div
-      id="pdf-viewer-container"
-      ref={containerRef}
-      className="relative flex flex-1 justify-center overflow-y-auto bg-neutral-900/90 py-8 px-4"
-    >
-      {/* Floating In-Document Search Bar */}
+    <div className="relative flex flex-1 flex-col overflow-hidden h-full">
+      {/* Floating In-Document Search Bar (pinned to viewer viewport, never scrolls away) */}
       <SearchBar />
 
-      <div className="flex flex-col items-center">
-        {pageNumbers.map((pageNum) => (
-          <PdfPageItem
-            key={`${activeTab.id}-p${pageNum}-${activeTab.scale}-${activeTab.rotation}`}
-            pageNum={pageNum}
-            pdfDoc={pdfDoc}
-            scale={activeTab.scale}
-            rotation={activeTab.rotation}
-            defaultPageSize={defaultPageSize}
-          />
-        ))}
+      {/* Scrollable Document Pages Container */}
+      <div
+        id="pdf-viewer-container"
+        ref={containerRef}
+        className="flex flex-1 justify-center overflow-y-auto bg-neutral-900/90 py-8 px-4"
+      >
+        <div className="flex flex-col items-center">
+          {pageNumbers.map((pageNum) => (
+            <PdfPageItem
+              key={`${activeTab.id}-p${pageNum}-${activeTab.scale}-${activeTab.rotation}`}
+              pageNum={pageNum}
+              pdfDoc={pdfDoc}
+              scale={activeTab.scale}
+              rotation={activeTab.rotation}
+              defaultPageSize={defaultPageSize}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

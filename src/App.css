@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+/* Ensure visible blue highlight when selecting text in the transparent PDF text layer */
+.pdf-text-layer ::selection {
+  background-color: rgba(59, 130, 246, 0.38);
+  color: transparent;
+}
