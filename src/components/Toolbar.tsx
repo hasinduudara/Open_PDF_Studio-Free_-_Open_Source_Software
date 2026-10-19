@@ -10,6 +10,9 @@ import {
   PanelLeft,
   Maximize,
   MoveHorizontal,
+  Search,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
@@ -17,7 +20,7 @@ import { usePdfStore } from "../store/usePdfStore";
 
 /**
  * Top application toolbar providing sidebar toggle, file opening,
- * page navigation, rotation, and zoom/fit controls.
+ * page navigation, rotation, search, dark reading mode, and zoom/fit controls.
  */
 export default function Toolbar() {
   const {
@@ -30,6 +33,11 @@ export default function Toolbar() {
     isSidebarOpen,
     toggleSidebar,
     pdfDoc,
+    isSearchOpen,
+    openSearch,
+    closeSearch,
+    isDarkPageMode,
+    toggleDarkPageMode,
   } = usePdfStore();
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -192,7 +200,7 @@ export default function Toolbar() {
           type="button"
           onClick={handleOpenFile}
           className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 font-medium text-white shadow-sm transition hover:bg-red-500 active:bg-red-700"
-          title="Open a PDF document"
+          title="Open a PDF document (Ctrl+O)"
         >
           <FolderOpen className="h-3.5 w-3.5" />
           <span>Open PDF</span>
@@ -242,8 +250,44 @@ export default function Toolbar() {
         </button>
       </div>
 
-      {/* Zoom, Rotation, and Fit Controls */}
+      {/* Zoom, Rotation, Fit, Search, and Dark Mode Controls */}
       <div className="flex items-center gap-1">
+        {/* Find/Search Button */}
+        <button
+          type="button"
+          onClick={isSearchOpen ? closeSearch : openSearch}
+          disabled={!activeTab}
+          className={`rounded p-1.5 transition-colors ${
+            isSearchOpen
+              ? "bg-neutral-800 text-red-400"
+              : "text-neutral-300 hover:bg-neutral-800 hover:text-white disabled:opacity-40"
+          }`}
+          title="Find in document (Ctrl+F)"
+        >
+          <Search className="h-4 w-4" />
+        </button>
+
+        {/* Dark Reading Mode Button */}
+        <button
+          type="button"
+          onClick={toggleDarkPageMode}
+          disabled={!activeTab}
+          className={`rounded p-1.5 transition-colors ${
+            isDarkPageMode
+              ? "bg-neutral-800 text-amber-400"
+              : "text-neutral-300 hover:bg-neutral-800 hover:text-white disabled:opacity-40"
+          }`}
+          title={
+            isDarkPageMode
+              ? "Disable Dark Page Reading Mode"
+              : "Enable Dark Page Reading Mode (Invert Colors)"
+          }
+        >
+          {isDarkPageMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+
+        <div className="h-4 w-[1px] bg-neutral-800 mx-0.5" />
+
         {/* Rotate Button */}
         <button
           type="button"
@@ -289,7 +333,7 @@ export default function Toolbar() {
           onClick={handleZoomOut}
           disabled={!activeTab || activeTab.scale <= 0.3}
           className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
-          title="Zoom Out"
+          title="Zoom Out (Ctrl+-)"
         >
           <ZoomOut className="h-4 w-4" />
         </button>
@@ -300,7 +344,7 @@ export default function Toolbar() {
           onClick={handleResetZoom}
           disabled={!activeTab}
           className="min-w-[48px] rounded px-1.5 py-0.5 font-mono text-center text-[11px] text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
-          title="Reset zoom to 100%"
+          title="Reset zoom to 100% (Ctrl+0)"
         >
           {activeTab ? `${Math.round(activeTab.scale * 100)}%` : "100%"}
         </button>
@@ -311,7 +355,7 @@ export default function Toolbar() {
           onClick={handleZoomIn}
           disabled={!activeTab || activeTab.scale >= 4.0}
           className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
-          title="Zoom In"
+          title="Zoom In (Ctrl+=)"
         >
           <ZoomIn className="h-4 w-4" />
         </button>

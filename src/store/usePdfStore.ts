@@ -18,8 +18,41 @@ export interface PdfTab {
 
 export type SidebarTab = "thumbnails" | "outline";
 
+export interface SearchMatch {
+  page: number;
+  matchIndex: number;
+}
+
+export interface RecentFile {
+  name: string;
+  path: string;
+  lastOpened: number;
+}
+
+const RECENT_FILES_STORAGE_KEY = "open_pdf_studio_recent_files";
+
+function loadPersistedRecentFiles(): RecentFile[] {
+  try {
+    const raw = localStorage.getItem(RECENT_FILES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentFiles(files: RecentFile[]) {
+  try {
+    localStorage.setItem(RECENT_FILES_STORAGE_KEY, JSON.stringify(files.slice(0, 10)));
+  } catch (err) {
+    console.error("Failed to persist recent files to localStorage:", err);
+  }
+}
+
 /**
- * Zustand state and actions for managing multi-tab PDF documents and layout.
+ * Zustand state and actions for managing multi-tab PDF documents, search,
+ * dark reading mode, recent files, and layout.
  */
 export interface PdfState {
   tabs: PdfTab[];
@@ -28,14 +61,20 @@ export interface PdfState {
   sidebarTab: SidebarTab;
   pdfDoc: pdfjsLib.PDFDocumentProxy | null;
 
-  /**
-   * Updates the currently active PDF document proxy reference.
-   */
+  // Search state
+  isSearchOpen: boolean;
+  searchQuery: string;
+  searchMatches: SearchMatch[];
+  currentMatchIndex: number;
+
+  // Page reading display mode
+  isDarkPageMode: boolean;
+
+  // Recent files list
+  recentFiles: RecentFile[];
+
   setPdfDoc: (doc: pdfjsLib.PDFDocumentProxy | null) => void;
 
-  /**
-   * Adds a new tab or activates an existing tab if the file path is already open.
-   */
   addTab: (tabData: {
     id?: string;
     name: string;
@@ -48,66 +87,33 @@ export interface PdfState {
     scrollTargetPage?: number | null;
   }) => void;
 
-  /**
-   * Closes the tab with the specified ID and activates an adjacent tab if necessary.
-   */
   closeTab: (id: string) => void;
-
-  /**
-   * Switches the active tab to the specified ID.
-   */
   setActiveTab: (id: string) => void;
 
-  /**
-   * Only updates currentPage (used by scroll/IntersectionObserver during manual scrolling).
-   * Does NOT trigger programmatic scrolling.
-   */
   setCurrentPageFromScroll: (page: number) => void;
-
-  /**
-   * Updates currentPage AND sets scrollTargetPage to trigger programmatic scroll in viewer.
-   */
   jumpToPage: (page: number) => void;
-
-  /**
-   * Resets scrollTargetPage to null after the viewer completes the programmatic scroll.
-   */
   clearScrollTarget: () => void;
-
-  /**
-   * Updates the current page and requests a programmatic jump for a specific tab.
-   */
   setPage: (tabId: string, page: number) => void;
-
-  /**
-   * Updates the total number of pages for a specific tab.
-   */
   setNumPages: (tabId: string, numPages: number) => void;
-
-  /**
-   * Updates the zoom scale for a specific tab.
-   */
   setScale: (tabId: string, scale: number) => void;
-
-  /**
-   * Rotates the tab's pages clockwise by 90 degrees.
-   */
   rotateClockwise: (tabId: string) => void;
-
-  /**
-   * Rotates the tab's pages counter-clockwise by 90 degrees.
-   */
   rotateCounterClockwise: (tabId: string) => void;
-
-  /**
-   * Toggles visibility of the left sidebar.
-   */
   toggleSidebar: () => void;
-
-  /**
-   * Sets the active tab inside the left sidebar (thumbnails or outline).
-   */
   setSidebarTab: (tab: SidebarTab) => void;
+
+  // Search actions
+  openSearch: () => void;
+  closeSearch: () => void;
+  setSearchQuery: (query: string) => void;
+  setSearchMatches: (matches: SearchMatch[]) => void;
+  setCurrentMatchIndex: (index: number) => void;
+  nextSearchMatch: () => void;
+  prevSearchMatch: () => void;
+
+  // Dark mode & recent files actions
+  toggleDarkPageMode: () => void;
+  clearRecentFiles: () => void;
+  removeRecentFile: (path: string) => void;
 }
 
 export const usePdfStore = create<PdfState>((set, get) => ({
@@ -117,12 +123,35 @@ export const usePdfStore = create<PdfState>((set, get) => ({
   sidebarTab: "thumbnails",
   pdfDoc: null,
 
+  isSearchOpen: false,
+  searchQuery: "",
+  searchMatches: [],
+  currentMatchIndex: 0,
+
+  isDarkPageMode: false,
+  recentFiles: loadPersistedRecentFiles(),
+
   setPdfDoc: (doc) => {
     set({ pdfDoc: doc });
   },
 
   addTab: (tabData) => {
-    const { tabs } = get();
+    const { tabs, recentFiles } = get();
+
+    // Update recent files list if file has a valid path
+    if (tabData.path && tabData.path.trim().length > 0) {
+      const updatedRecent = [
+        {
+          name: tabData.name,
+          path: tabData.path,
+          lastOpened: Date.now(),
+        },
+        ...recentFiles.filter((item) => item.path !== tabData.path),
+      ].slice(0, 10);
+
+      persistRecentFiles(updatedRecent);
+      set({ recentFiles: updatedRecent });
+    }
 
     // If document with the exact same path is already open, activate that tab
     const existingTabIndex = tabs.findIndex(
@@ -239,7 +268,6 @@ export const usePdfStore = create<PdfState>((set, get) => ({
   },
 
   setScale: (tabId, scale) => {
-    // Keep scale within sensible viewing bounds: 25% to 500%
     const clampedScale = Math.max(0.25, Math.min(scale, 5.0));
     set((state) => ({
       tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, scale: clampedScale } : tab)),
@@ -272,5 +300,71 @@ export const usePdfStore = create<PdfState>((set, get) => ({
 
   setSidebarTab: (tab) => {
     set({ sidebarTab: tab });
+  },
+
+  openSearch: () => {
+    set({ isSearchOpen: true });
+  },
+
+  closeSearch: () => {
+    set({
+      isSearchOpen: false,
+      searchQuery: "",
+      searchMatches: [],
+      currentMatchIndex: 0,
+    });
+  },
+
+  setSearchQuery: (query) => {
+    set({ searchQuery: query });
+  },
+
+  setSearchMatches: (matches) => {
+    set({
+      searchMatches: matches,
+      currentMatchIndex: matches.length > 0 ? 0 : 0,
+    });
+  },
+
+  setCurrentMatchIndex: (index) => {
+    set({ currentMatchIndex: index });
+  },
+
+  nextSearchMatch: () => {
+    const { searchMatches, currentMatchIndex, jumpToPage } = get();
+    if (searchMatches.length === 0) return;
+
+    const nextIndex = (currentMatchIndex + 1) % searchMatches.length;
+    set({ currentMatchIndex: nextIndex });
+    jumpToPage(searchMatches[nextIndex].page);
+  },
+
+  prevSearchMatch: () => {
+    const { searchMatches, currentMatchIndex, jumpToPage } = get();
+    if (searchMatches.length === 0) return;
+
+    const prevIndex = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+    set({ currentMatchIndex: prevIndex });
+    jumpToPage(searchMatches[prevIndex].page);
+  },
+
+  toggleDarkPageMode: () => {
+    set((state) => ({ isDarkPageMode: !state.isDarkPageMode }));
+  },
+
+  clearRecentFiles: () => {
+    try {
+      localStorage.removeItem(RECENT_FILES_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    set({ recentFiles: [] });
+  },
+
+  removeRecentFile: (path) => {
+    const { recentFiles } = get();
+    const updated = recentFiles.filter((item) => item.path !== path);
+    persistRecentFiles(updated);
+    set({ recentFiles: updated });
   },
 }));
