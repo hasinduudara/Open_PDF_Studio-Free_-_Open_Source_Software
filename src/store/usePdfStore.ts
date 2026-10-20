@@ -1,6 +1,40 @@
 import { create } from "zustand";
 import type * as pdfjsLib from "pdfjs-dist";
 
+export type AnnotationTool = "select" | "highlight" | "note" | "draw";
+
+export interface HighlightAnnotation {
+  id: string;
+  page: number;
+  type: "highlight";
+  color: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface NoteAnnotation {
+  id: string;
+  page: number;
+  type: "note";
+  color: string;
+  x: number;
+  y: number;
+  text: string;
+}
+
+export interface DrawAnnotation {
+  id: string;
+  page: number;
+  type: "draw";
+  color: string;
+  strokeWidth: number;
+  points: { x: number; y: number }[];
+}
+
+export type PdfAnnotation = HighlightAnnotation | NoteAnnotation | DrawAnnotation;
+
 /**
  * Represents an open PDF document tab in the application.
  */
@@ -14,6 +48,7 @@ export interface PdfTab {
   scale: number;
   rotation: number; // 0, 90, 180, 270 degrees
   scrollTargetPage: number | null; // Non-null only when a programmatic scroll is requested
+  annotations: PdfAnnotation[];
 }
 
 export type SidebarTab = "thumbnails" | "outline";
@@ -52,7 +87,7 @@ function persistRecentFiles(files: RecentFile[]) {
 
 /**
  * Zustand state and actions for managing multi-tab PDF documents, search,
- * dark reading mode, recent files, and layout.
+ * dark reading mode, recent files, annotations, and layout.
  */
 export interface PdfState {
   tabs: PdfTab[];
@@ -73,6 +108,10 @@ export interface PdfState {
   // Recent files list
   recentFiles: RecentFile[];
 
+  // Annotations state
+  activeTool: AnnotationTool;
+  activeColor: string;
+
   setPdfDoc: (doc: pdfjsLib.PDFDocumentProxy | null) => void;
 
   addTab: (tabData: {
@@ -85,6 +124,7 @@ export interface PdfState {
     scale?: number;
     rotation?: number;
     scrollTargetPage?: number | null;
+    annotations?: PdfAnnotation[];
   }) => void;
 
   closeTab: (id: string) => void;
@@ -114,6 +154,14 @@ export interface PdfState {
   toggleDarkPageMode: () => void;
   clearRecentFiles: () => void;
   removeRecentFile: (path: string) => void;
+
+  // Annotation actions
+  setActiveTool: (tool: AnnotationTool) => void;
+  setActiveColor: (color: string) => void;
+  addAnnotation: (tabId: string, annotation: PdfAnnotation) => void;
+  updateAnnotation: (tabId: string, id: string, updates: Partial<PdfAnnotation>) => void;
+  deleteAnnotation: (tabId: string, id: string) => void;
+  undoLastAnnotation: (tabId?: string) => void;
 }
 
 export const usePdfStore = create<PdfState>((set, get) => ({
@@ -130,6 +178,9 @@ export const usePdfStore = create<PdfState>((set, get) => ({
 
   isDarkPageMode: false,
   recentFiles: loadPersistedRecentFiles(),
+
+  activeTool: "select",
+  activeColor: "#facc15",
 
   setPdfDoc: (doc) => {
     set({ pdfDoc: doc });
@@ -173,6 +224,7 @@ export const usePdfStore = create<PdfState>((set, get) => ({
       scale: tabData.scale ?? 1.2,
       rotation: tabData.rotation ?? 0,
       scrollTargetPage: null,
+      annotations: tabData.annotations ?? [],
     };
 
     set({
@@ -366,5 +418,67 @@ export const usePdfStore = create<PdfState>((set, get) => ({
     const updated = recentFiles.filter((item) => item.path !== path);
     persistRecentFiles(updated);
     set({ recentFiles: updated });
+  },
+
+  // Annotation actions
+  setActiveTool: (tool) => {
+    set({ activeTool: tool });
+  },
+
+  setActiveColor: (color) => {
+    set({ activeColor: color });
+  },
+
+  addAnnotation: (tabId, annotation) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) =>
+        tab.id === tabId
+          ? { ...tab, annotations: [...(tab.annotations || []), annotation] }
+          : tab
+      ),
+    }));
+  },
+
+  updateAnnotation: (tabId, id, updates) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== tabId) return tab;
+        return {
+          ...tab,
+          annotations: (tab.annotations || []).map((ann) =>
+            ann.id === id ? ({ ...ann, ...updates } as PdfAnnotation) : ann
+          ),
+        };
+      }),
+    }));
+  },
+
+  deleteAnnotation: (tabId, id) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== tabId) return tab;
+        return {
+          ...tab,
+          annotations: (tab.annotations || []).filter((ann) => ann.id !== id),
+        };
+      }),
+    }));
+  },
+
+  undoLastAnnotation: (tabId) => {
+    const targetTabId = tabId || get().activeTabId;
+    if (!targetTabId) return;
+
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== targetTabId) return tab;
+        const currentList = tab.annotations || [];
+        if (currentList.length === 0) return tab;
+        return {
+          ...tab,
+          annotations: currentList.slice(0, currentList.length - 1),
+        };
+      }),
+    }));
   },
 }));

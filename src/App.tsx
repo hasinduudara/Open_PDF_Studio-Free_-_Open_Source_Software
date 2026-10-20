@@ -14,6 +14,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { usePdfStore, type RecentFile } from "./store/usePdfStore";
+import { saveAnnotatedPdf } from "./utils/pdfSaver";
 import Toolbar from "./components/Toolbar";
 import TabBar from "./components/TabBar";
 import Sidebar from "./components/Sidebar";
@@ -51,6 +52,7 @@ export default function App() {
     recentFiles,
     clearRecentFiles,
     removeRecentFile,
+    undoLastAnnotation,
   } = usePdfStore();
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
@@ -119,6 +121,28 @@ export default function App() {
         return;
       }
 
+      // Ctrl+S: Save annotated PDF to disk
+      if (isCtrl && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        const activeTab = tabs.find((t) => t.id === activeTabId);
+        if (activeTab) {
+          saveAnnotatedPdf(activeTab);
+        }
+        return;
+      }
+
+      // Ctrl+Z: Undo last annotation (unless focused in a text editing element)
+      if (isCtrl && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        const isEditingText =
+          document.activeElement?.tagName === "INPUT" ||
+          document.activeElement?.tagName === "TEXTAREA";
+        if (!isEditingText) {
+          e.preventDefault();
+          undoLastAnnotation(activeTabId || undefined);
+          return;
+        }
+      }
+
       // Ctrl+W: Close active tab
       if (isCtrl && e.key.toLowerCase() === "w") {
         e.preventDefault();
@@ -153,7 +177,7 @@ export default function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeTabId, tabs, setScale, closeTab, openSearch]);
+  }, [activeTabId, tabs, setScale, closeTab, openSearch, undoLastAnnotation]);
 
   // Set up Tauri native window drag-and-drop listener
   useEffect(() => {

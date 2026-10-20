@@ -4,6 +4,7 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { Loader2, AlertCircle } from "lucide-react";
 import { usePdfStore, type PdfTab } from "../store/usePdfStore";
 import SearchBar from "./SearchBar";
+import AnnotationLayer from "./AnnotationLayer";
 
 // Initialize PDF.js worker using Vite URL resolution
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -318,6 +319,13 @@ function PdfPageItem({
           );
         })}
       </div>
+
+      {/* Interactive Annotation Layer */}
+      <AnnotationLayer
+        pageNum={pageNum}
+        pageWidth={width}
+        pageHeight={height}
+      />
 
       {/* Page Number Badge */}
       <div className="absolute bottom-2 right-2 rounded bg-neutral-900/60 px-1.5 py-0.5 text-[10px] font-mono text-white/70 backdrop-blur-sm pointer-events-none">

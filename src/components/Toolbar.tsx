@@ -13,14 +13,23 @@ import {
   Search,
   Moon,
   Sun,
+  MousePointer,
+  Highlighter,
+  MessageSquarePlus,
+  Pen,
+  Undo2,
+  Download,
+  Check,
+  Loader2,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { usePdfStore } from "../store/usePdfStore";
+import { saveAnnotatedPdf } from "../utils/pdfSaver";
 
 /**
- * Top application toolbar providing sidebar toggle, file opening,
- * page navigation, rotation, search, dark reading mode, and zoom/fit controls.
+ * Top application toolbar providing sidebar toggle, file opening, saving,
+ * page navigation, annotation tools, search, and zoom/fit controls.
  */
 export default function Toolbar() {
   const {
@@ -38,18 +47,49 @@ export default function Toolbar() {
     closeSearch,
     isDarkPageMode,
     toggleDarkPageMode,
+    activeTool,
+    setActiveTool,
+    activeColor,
+    setActiveColor,
+    undoLastAnnotation,
   } = usePdfStore();
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
   // Local state for the editable page input
   const [pageInput, setPageInput] = useState<string>("1");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeTab) {
       setPageInput(String(activeTab.currentPage));
     }
   }, [activeTab?.currentPage, activeTab?.id]);
+
+  /**
+   * Prompts user for destination path and writes annotated PDF bytes to disk.
+   */
+  async function handleSavePdf() {
+    if (!activeTab || isSaving) return;
+    try {
+      setIsSaving(true);
+      setSaveStatus("Saving...");
+      const savedPath = await saveAnnotatedPdf(activeTab);
+      if (savedPath) {
+        setSaveStatus("Saved!");
+        setTimeout(() => setSaveStatus(null), 2500);
+      } else {
+        setSaveStatus(null);
+      }
+    } catch (err) {
+      console.error("Failed to save annotated PDF:", err);
+      setSaveStatus("Failed");
+      setTimeout(() => setSaveStatus(null), 2500);
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   /**
    * Prompts user to select a PDF file, reads binary data, and opens as a new tab.
@@ -199,11 +239,29 @@ export default function Toolbar() {
         <button
           type="button"
           onClick={handleOpenFile}
-          className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 font-medium text-white shadow-sm transition hover:bg-red-500 active:bg-red-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 font-medium text-white shadow-sm transition hover:bg-red-500 active:bg-red-700 cursor-pointer"
           title="Open a PDF document (Ctrl+O)"
         >
           <FolderOpen className="h-3.5 w-3.5" />
           <span>Open PDF</span>
+        </button>
+
+        {/* Save Annotated PDF Button */}
+        <button
+          type="button"
+          onClick={handleSavePdf}
+          disabled={!activeTab || isSaving}
+          className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1 font-medium text-neutral-200 transition hover:bg-neutral-700 active:bg-neutral-850 hover:text-white disabled:opacity-40 cursor-pointer"
+          title="Save Annotated PDF to Disk (Ctrl+S)"
+        >
+          {isSaving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+          ) : saveStatus === "Saved!" ? (
+            <Check className="h-3.5 w-3.5 text-green-400" />
+          ) : (
+            <Download className="h-3.5 w-3.5 text-neutral-300" />
+          )}
+          <span>{saveStatus || "Save As"}</span>
         </button>
       </div>
 
@@ -213,7 +271,7 @@ export default function Toolbar() {
           type="button"
           onClick={handlePrevPage}
           disabled={!activeTab || activeTab.currentPage <= 1}
-          className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent"
+          className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
           title="Previous Page"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -243,10 +301,110 @@ export default function Toolbar() {
           type="button"
           onClick={handleNextPage}
           disabled={!activeTab || activeTab.currentPage >= activeTab.numPages}
-          className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent"
+          className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
           title="Next Page"
         >
           <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Annotation Tools & Color Palette */}
+      <div className="flex items-center gap-1 bg-neutral-950/70 p-0.5 rounded-lg border border-neutral-800/80">
+        {/* Select Tool */}
+        <button
+          type="button"
+          onClick={() => setActiveTool("select")}
+          className={`rounded p-1.5 transition-colors cursor-pointer ${
+            activeTool === "select"
+              ? "bg-neutral-800 text-neutral-100 shadow-xs"
+              : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white"
+          }`}
+          title="Select & Manage Annotations (V)"
+        >
+          <MousePointer className="h-3.5 w-3.5" />
+        </button>
+
+        {/* Highlight Tool */}
+        <button
+          type="button"
+          onClick={() => setActiveTool("highlight")}
+          disabled={!activeTab}
+          className={`rounded p-1.5 transition-colors cursor-pointer ${
+            activeTool === "highlight"
+              ? "bg-neutral-800 text-amber-400 shadow-xs"
+              : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white disabled:opacity-40"
+          }`}
+          title="Highlight Rectangle (H)"
+        >
+          <Highlighter className="h-3.5 w-3.5" />
+        </button>
+
+        {/* Sticky Note Tool */}
+        <button
+          type="button"
+          onClick={() => setActiveTool("note")}
+          disabled={!activeTab}
+          className={`rounded p-1.5 transition-colors cursor-pointer ${
+            activeTool === "note"
+              ? "bg-neutral-800 text-blue-400 shadow-xs"
+              : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white disabled:opacity-40"
+          }`}
+          title="Add Sticky Note Comment (N)"
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" />
+        </button>
+
+        {/* Freehand Draw Tool */}
+        <button
+          type="button"
+          onClick={() => setActiveTool("draw")}
+          disabled={!activeTab}
+          className={`rounded p-1.5 transition-colors cursor-pointer ${
+            activeTool === "draw"
+              ? "bg-neutral-800 text-emerald-400 shadow-xs"
+              : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white disabled:opacity-40"
+          }`}
+          title="Freehand Draw (D)"
+        >
+          <Pen className="h-3.5 w-3.5" />
+        </button>
+
+        <div className="h-3.5 w-[1px] bg-neutral-800 mx-0.5" />
+
+        {/* Color Palette (Yellow, Green, Blue, Red) */}
+        <div className="flex items-center gap-1.5 px-1">
+          {[
+            { hex: "#facc15", name: "Yellow" },
+            { hex: "#4ade80", name: "Green" },
+            { hex: "#60a5fa", name: "Blue" },
+            { hex: "#f87171", name: "Red" },
+          ].map((c) => (
+            <button
+              key={c.hex}
+              type="button"
+              onClick={() => setActiveColor(c.hex)}
+              className={`w-3.5 h-3.5 rounded-full transition-transform cursor-pointer ${
+                activeColor === c.hex
+                  ? "ring-2 ring-white ring-offset-1 ring-offset-neutral-900 scale-110"
+                  : "opacity-60 hover:opacity-100 hover:scale-105"
+              }`}
+              style={{ backgroundColor: c.hex }}
+              title={c.name}
+            />
+          ))}
+        </div>
+
+        <div className="h-3.5 w-[1px] bg-neutral-800 mx-0.5" />
+
+        {/* Undo Last Annotation */}
+        <button
+          type="button"
+          onClick={() => undoLastAnnotation(activeTab?.id)}
+          disabled={!activeTab || (activeTab.annotations || []).length === 0}
+          className="rounded p-1.5 text-neutral-400 transition hover:bg-neutral-800 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
+          title="Undo Last Annotation (Ctrl+Z)"
+        >
+          <Undo2 className="h-3.5 w-3.5" />
         </button>
       </div>
 
