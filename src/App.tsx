@@ -53,6 +53,7 @@ export default function App() {
     clearRecentFiles,
     removeRecentFile,
     undoLastAnnotation,
+    setActiveTool,
   } = usePdfStore();
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
@@ -171,13 +172,32 @@ export default function App() {
           return;
         }
       }
+
+      // Quick tool switching shortcuts: V, H, N, P (only when not editing text)
+      if (!isCtrl && !e.altKey && !e.shiftKey) {
+        const isEditingText =
+          document.activeElement?.tagName === "INPUT" ||
+          document.activeElement?.tagName === "TEXTAREA";
+        if (!isEditingText) {
+          const key = e.key.toLowerCase();
+          if (key === "v") {
+            setActiveTool("select");
+          } else if (key === "h") {
+            setActiveTool("highlight");
+          } else if (key === "n") {
+            setActiveTool("note");
+          } else if (key === "p" || key === "d") {
+            setActiveTool("draw");
+          }
+        }
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeTabId, tabs, setScale, closeTab, openSearch, undoLastAnnotation]);
+  }, [activeTabId, tabs, setScale, closeTab, openSearch, undoLastAnnotation, setActiveTool]);
 
   // Set up Tauri native window drag-and-drop listener
   useEffect(() => {

@@ -347,6 +347,7 @@ export default function PdfViewer() {
     setCurrentPageFromScroll,
     clearScrollTarget,
     setPdfDoc,
+    setAnnotations,
     currentMatchIndex,
     searchMatches,
   } = usePdfStore();
@@ -399,6 +400,39 @@ export default function PdfViewer() {
           console.warn("Failed to pre-compute initial page dimensions:", e);
         }
 
+        // Re-hydrate persistent annotations from PDF metadata if present
+        try {
+          const metadata = await loadedDoc.getMetadata();
+          const info = (metadata?.info as Record<string, any>) || {};
+          const rawKeywords = typeof info.Keywords === "string" ? info.Keywords : "";
+          const rawSubject = typeof info.Subject === "string" ? info.Subject : "";
+
+          let annotationJson = "";
+          const marker = "OPEN_PDF_STUDIO_ANNOTATIONS:";
+          if (rawKeywords.includes(marker)) {
+            annotationJson = rawKeywords.slice(rawKeywords.indexOf(marker) + marker.length);
+          } else if (rawSubject.includes(marker)) {
+            annotationJson = rawSubject.slice(rawSubject.indexOf(marker) + marker.length);
+          }
+
+          if (annotationJson) {
+            const firstBracket = annotationJson.indexOf("[");
+            const lastBracket = annotationJson.lastIndexOf("]");
+            if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+              const slice = annotationJson.substring(firstBracket, lastBracket + 1);
+              const parsed = JSON.parse(slice);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const currentTab = usePdfStore.getState().tabs.find((t) => t.id === activeTab.id);
+                if (currentTab && (!currentTab.annotations || currentTab.annotations.length === 0)) {
+                  setAnnotations(activeTab.id, parsed);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to extract embedded annotations from metadata:", e);
+        }
+
         setLocalPdfDoc(loadedDoc);
         setPdfDoc(loadedDoc);
         setNumPages(activeTab.id, loadedDoc.numPages);
@@ -417,7 +451,7 @@ export default function PdfViewer() {
       isSubscribed = false;
       loadingTask.destroy();
     };
-  }, [activeTab?.id, activeTab?.data, setNumPages, setPdfDoc]);
+  }, [activeTab?.id, activeTab?.data, setNumPages, setPdfDoc, setAnnotations]);
 
   // Recalculate baseline page dimensions when scale or rotation changes
   useEffect(() => {

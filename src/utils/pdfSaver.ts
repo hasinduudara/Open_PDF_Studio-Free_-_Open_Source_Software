@@ -44,6 +44,11 @@ export async function saveAnnotatedPdf(tab: PdfTab): Promise<string | null> {
 
     const annotations = tab.annotations || [];
 
+    // Embed serialized annotations into document metadata for persistent re-hydration
+    const serializedAnnotations = "OPEN_PDF_STUDIO_ANNOTATIONS:" + JSON.stringify(annotations);
+    pdfDoc.setKeywords([serializedAnnotations]);
+    pdfDoc.setSubject(serializedAnnotations);
+
     for (const ann of annotations) {
       const pageIndex = ann.page - 1;
       if (pageIndex < 0 || pageIndex >= pages.length) continue;
@@ -92,44 +97,58 @@ export async function saveAnnotatedPdf(tab: PdfTab): Promise<string | null> {
       } else if (ann.type === "note") {
         const x = ann.x * pageWidth;
         const y = (1 - ann.y) * pageHeight;
-        const markerSize = 16;
 
-        // Draw note marker square with subtle dark border
-        page.drawRectangle({
-          x: Math.max(0, x - markerSize / 2),
-          y: Math.max(0, y - markerSize / 2),
-          width: markerSize,
-          height: markerSize,
+        // Draw clean circular note marker pin
+        page.drawCircle({
+          x,
+          y,
+          size: 9,
           color,
-          opacity: 0.9,
-          borderWidth: 1,
-          borderColor: rgb(0.2, 0.2, 0.2),
+          opacity: 0.95,
+          borderWidth: 0.8,
+          borderColor: rgb(0.15, 0.15, 0.15),
         });
 
-        // Draw comment label if text is present
+        // Draw inner speech-bubble / note indicator icon
+        page.drawCircle({
+          x,
+          y,
+          size: 4.5,
+          color: rgb(1, 1, 1),
+          opacity: 0.9,
+        });
+        page.drawCircle({
+          x,
+          y,
+          size: 2,
+          color,
+          opacity: 0.9,
+        });
+
+        // Draw comment label pill if text is present
         if (ann.text && ann.text.trim().length > 0) {
-          const maxChar = 80;
+          const maxChar = 70;
           const labelText =
             ann.text.length > maxChar ? `${ann.text.slice(0, maxChar)}...` : ann.text;
 
-          const textWidth = helveticaFont.widthOfTextAtSize(labelText, 9);
+          const textWidth = helveticaFont.widthOfTextAtSize(labelText, 8.5);
           page.drawRectangle({
-            x: x + markerSize / 2 + 4,
-            y: Math.max(4, y - 6),
-            width: textWidth + 8,
-            height: 14,
+            x: x + 13,
+            y: Math.max(4, y - 7),
+            width: textWidth + 12,
+            height: 15,
             color: rgb(1, 1, 1),
-            opacity: 0.9,
+            opacity: 0.95,
             borderColor: rgb(0.75, 0.75, 0.75),
             borderWidth: 0.5,
           });
 
           page.drawText(labelText, {
-            x: x + markerSize / 2 + 8,
+            x: x + 19,
             y: Math.max(7, y - 3),
-            size: 9,
+            size: 8.5,
             font: helveticaFont,
-            color: rgb(0.1, 0.1, 0.1),
+            color: rgb(0.15, 0.15, 0.15),
           });
         }
       }

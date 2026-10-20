@@ -83,6 +83,17 @@ export default function AnnotationLayer({
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!activeTab) return;
 
+    // If the click originated from within a sticky note or its popover or any button, ignore
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(".sticky-note-wrapper") ||
+      target.closest(".sticky-note-popover") ||
+      target.closest("button") ||
+      target.closest("textarea")
+    ) {
+      return;
+    }
+
     // Do nothing for selection mode (clicks pass through to elements or text layer)
     if (activeTool === "select") {
       // If clicking directly on empty area, deselect any currently selected annotation
@@ -383,23 +394,30 @@ export default function AnnotationLayer({
           return (
             <div
               key={note.id}
-              className="absolute pointer-events-auto z-30"
+              className="sticky-note-wrapper absolute pointer-events-auto z-30"
               style={{
                 left: `${noteLeft}px`,
                 top: `${noteTop}px`,
                 transform: "translate(-50%, -50%)",
               }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseUp={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Note Pin Icon Button */}
               <button
                 type="button"
-                onClick={() => {
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
                   setSelectedAnnotationId(isSelected ? null : note.id);
                 }}
-                className="p-1.5 rounded-full shadow-lg border border-black/30 hover:scale-115 active:scale-95 transition-all duration-150 flex items-center justify-center cursor-pointer"
+                className="p-1.5 rounded-full shadow-lg border border-black/30 hover:scale-115 active:scale-95 transition-all duration-150 flex items-center justify-center cursor-pointer pointer-events-auto"
                 style={{ backgroundColor: note.color }}
-                title={note.text || "Sticky Note"}
+                title={note.text ? `Note: ${note.text.slice(0, 30)}...` : "Sticky Note"}
               >
                 <MessageSquare className="w-3.5 h-3.5 text-neutral-900 fill-neutral-900/20" />
               </button>
@@ -407,10 +425,14 @@ export default function AnnotationLayer({
               {/* Note Popover / Comment Card */}
               {isSelected && (
                 <div
-                  className={`absolute z-50 w-72 rounded-xl bg-neutral-900/95 border border-neutral-700/80 p-3 shadow-2xl backdrop-blur-md text-neutral-100 ${
+                  className={`sticky-note-popover absolute z-50 w-72 rounded-xl bg-neutral-900/95 border border-neutral-700/80 p-3 shadow-2xl backdrop-blur-md text-neutral-100 pointer-events-auto ${
                     popoverToLeft ? "right-2 top-8" : "left-2 top-8"
                   }`}
                   style={{ minWidth: "260px" }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseUp={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <div className="flex items-center justify-between pb-2 border-b border-neutral-800 mb-2">
                     <div className="flex items-center gap-1.5">
@@ -426,7 +448,10 @@ export default function AnnotationLayer({
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => {
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
                           if (activeTab) {
                             deleteAnnotation(activeTab.id, note.id);
                           }
@@ -439,7 +464,12 @@ export default function AnnotationLayer({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedAnnotationId(null)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedAnnotationId(null);
+                        }}
                         className="p-1 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 rounded transition-colors cursor-pointer"
                         title="Close"
                       >
@@ -451,6 +481,10 @@ export default function AnnotationLayer({
                   <textarea
                     autoFocus
                     value={note.text}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
                     onChange={(e) => {
                       if (activeTab) {
                         updateAnnotation(activeTab.id, note.id, {
@@ -460,7 +494,7 @@ export default function AnnotationLayer({
                     }}
                     placeholder="Write a comment or note..."
                     rows={3}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg p-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-amber-400/80 resize-none"
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg p-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-amber-400/80 resize-none select-text cursor-text pointer-events-auto"
                   />
                 </div>
               )}

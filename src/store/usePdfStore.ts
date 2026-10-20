@@ -158,6 +158,7 @@ export interface PdfState {
   // Annotation actions
   setActiveTool: (tool: AnnotationTool) => void;
   setActiveColor: (color: string) => void;
+  setAnnotations: (tabId: string, annotations: PdfAnnotation[]) => void;
   addAnnotation: (tabId: string, annotation: PdfAnnotation) => void;
   updateAnnotation: (tabId: string, id: string, updates: Partial<PdfAnnotation>) => void;
   deleteAnnotation: (tabId: string, id: string) => void;
@@ -427,6 +428,14 @@ export const usePdfStore = create<PdfState>((set, get) => ({
 
   setActiveColor: (color) => {
     set({ activeColor: color });
+  },
+
+  setAnnotations: (tabId, annotations) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) =>
+        tab.id === tabId ? { ...tab, annotations } : tab
+      ),
+    }));
   },
 
   addAnnotation: (tabId, annotation) => {

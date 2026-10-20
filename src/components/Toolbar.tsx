@@ -224,12 +224,12 @@ export default function Toolbar() {
         <button
           type="button"
           onClick={toggleSidebar}
-          className={`rounded p-1.5 transition-colors ${
+          className={`rounded p-1.5 transition-colors cursor-pointer ${
             isSidebarOpen
               ? "bg-neutral-800 text-neutral-100"
               : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
           }`}
-          title={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+          title={isSidebarOpen ? "Collapse Left Sidebar" : "Expand Left Sidebar"}
         >
           <PanelLeft className="h-4 w-4" />
         </button>
@@ -240,7 +240,7 @@ export default function Toolbar() {
           type="button"
           onClick={handleOpenFile}
           className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 font-medium text-white shadow-sm transition hover:bg-red-500 active:bg-red-700 cursor-pointer"
-          title="Open a PDF document (Ctrl+O)"
+          title="Open PDF Document (Ctrl+O)"
         >
           <FolderOpen className="h-3.5 w-3.5" />
           <span>Open PDF</span>
@@ -252,7 +252,7 @@ export default function Toolbar() {
           onClick={handleSavePdf}
           disabled={!activeTab || isSaving}
           className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1 font-medium text-neutral-200 transition hover:bg-neutral-700 active:bg-neutral-850 hover:text-white disabled:opacity-40 cursor-pointer"
-          title="Save Annotated PDF to Disk (Ctrl+S)"
+          title="Save Annotated PDF (Ctrl+S)"
         >
           {isSaving ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
@@ -289,6 +289,7 @@ export default function Toolbar() {
               }
             }}
             onBlur={handlePageInputCommit}
+            title="Current Page (Press Enter to jump)"
             className="w-10 rounded border border-neutral-700 bg-neutral-950 px-1 py-0.5 text-center text-xs text-neutral-100 outline-none focus:border-red-500 disabled:opacity-40"
           />
           <span className="text-neutral-500">/</span>
@@ -319,7 +320,7 @@ export default function Toolbar() {
               ? "bg-neutral-800 text-neutral-100 shadow-xs"
               : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white"
           }`}
-          title="Select & Manage Annotations (V)"
+          title="Select / Cursor (V)"
         >
           <MousePointer className="h-3.5 w-3.5" />
         </button>
@@ -334,7 +335,7 @@ export default function Toolbar() {
               ? "bg-neutral-800 text-amber-400 shadow-xs"
               : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white disabled:opacity-40"
           }`}
-          title="Highlight Rectangle (H)"
+          title="Highlight Area (H)"
         >
           <Highlighter className="h-3.5 w-3.5" />
         </button>
@@ -349,7 +350,7 @@ export default function Toolbar() {
               ? "bg-neutral-800 text-blue-400 shadow-xs"
               : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white disabled:opacity-40"
           }`}
-          title="Add Sticky Note Comment (N)"
+          title="Add Sticky Note / Comment (N)"
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
         </button>
@@ -364,14 +365,14 @@ export default function Toolbar() {
               ? "bg-neutral-800 text-emerald-400 shadow-xs"
               : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white disabled:opacity-40"
           }`}
-          title="Freehand Draw (D)"
+          title="Freehand Pen (P)"
         >
           <Pen className="h-3.5 w-3.5" />
         </button>
 
         <div className="h-3.5 w-[1px] bg-neutral-800 mx-0.5" />
 
-        {/* Color Palette (Yellow, Green, Blue, Red) */}
+        {/* Color Palette (Yellow, Green, Blue, Red + Custom Color Picker) */}
         <div className="flex items-center gap-1.5 px-1">
           {[
             { hex: "#facc15", name: "Yellow" },
@@ -384,7 +385,7 @@ export default function Toolbar() {
               type="button"
               onClick={() => setActiveColor(c.hex)}
               className={`w-3.5 h-3.5 rounded-full transition-transform cursor-pointer ${
-                activeColor === c.hex
+                activeColor.toLowerCase() === c.hex.toLowerCase()
                   ? "ring-2 ring-white ring-offset-1 ring-offset-neutral-900 scale-110"
                   : "opacity-60 hover:opacity-100 hover:scale-105"
               }`}
@@ -392,6 +393,38 @@ export default function Toolbar() {
               title={c.name}
             />
           ))}
+
+          {/* Custom Color Picker */}
+          <label
+            className={`relative flex items-center justify-center w-4 h-4 rounded-full cursor-pointer transition-transform hover:scale-110 overflow-hidden ${
+              !["#facc15", "#4ade80", "#60a5fa", "#f87171"].includes(activeColor.toLowerCase())
+                ? "ring-2 ring-white ring-offset-1 ring-offset-neutral-900 scale-110"
+                : "opacity-75 hover:opacity-100"
+            }`}
+            title="Choose Custom Color"
+            style={{
+              background:
+                "conic-gradient(from 0deg, red, yellow, lime, aqua, blue, magenta, red)",
+            }}
+          >
+            <input
+              type="color"
+              value={activeColor}
+              onChange={(e) => setActiveColor(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full p-0 border-0"
+              title="Choose Custom Color"
+            />
+            <span
+              className="w-1.5 h-1.5 rounded-full pointer-events-none border border-black/40"
+              style={{
+                backgroundColor: !["#facc15", "#4ade80", "#60a5fa", "#f87171"].includes(
+                  activeColor.toLowerCase()
+                )
+                  ? activeColor
+                  : "#ffffff",
+              }}
+            />
+          </label>
         </div>
 
         <div className="h-3.5 w-[1px] bg-neutral-800 mx-0.5" />
@@ -415,12 +448,12 @@ export default function Toolbar() {
           type="button"
           onClick={isSearchOpen ? closeSearch : openSearch}
           disabled={!activeTab}
-          className={`rounded p-1.5 transition-colors ${
+          className={`rounded p-1.5 transition-colors cursor-pointer ${
             isSearchOpen
               ? "bg-neutral-800 text-red-400"
               : "text-neutral-300 hover:bg-neutral-800 hover:text-white disabled:opacity-40"
           }`}
-          title="Find in document (Ctrl+F)"
+          title={isSearchOpen ? "Close Search (Esc)" : "Find in Document (Ctrl+F)"}
         >
           <Search className="h-4 w-4" />
         </button>
@@ -430,15 +463,15 @@ export default function Toolbar() {
           type="button"
           onClick={toggleDarkPageMode}
           disabled={!activeTab}
-          className={`rounded p-1.5 transition-colors ${
+          className={`rounded p-1.5 transition-colors cursor-pointer ${
             isDarkPageMode
               ? "bg-neutral-800 text-amber-400"
               : "text-neutral-300 hover:bg-neutral-800 hover:text-white disabled:opacity-40"
           }`}
           title={
             isDarkPageMode
-              ? "Disable Dark Page Reading Mode"
-              : "Enable Dark Page Reading Mode (Invert Colors)"
+              ? "Disable Dark Reading Mode (Normal Colors)"
+              : "Enable Dark Reading Mode (Invert Colors)"
           }
         >
           {isDarkPageMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -451,7 +484,7 @@ export default function Toolbar() {
           type="button"
           onClick={handleRotate}
           disabled={!activeTab}
-          className="rounded p-1.5 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
+          className="rounded p-1.5 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 cursor-pointer"
           title="Rotate 90° Clockwise"
         >
           <RotateCw className="h-4 w-4" />
@@ -464,8 +497,8 @@ export default function Toolbar() {
           type="button"
           onClick={handleFitWidth}
           disabled={!activeTab}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
-          title="Fit to Width"
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 cursor-pointer"
+          title="Fit Page to Width"
         >
           <MoveHorizontal className="h-3.5 w-3.5" />
           <span className="text-[11px]">Fit Width</span>
@@ -476,8 +509,8 @@ export default function Toolbar() {
           type="button"
           onClick={handleFitPage}
           disabled={!activeTab}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
-          title="Fit to Page"
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 cursor-pointer"
+          title="Fit Entire Page to Window"
         >
           <Maximize className="h-3.5 w-3.5" />
           <span className="text-[11px]">Fit Page</span>
@@ -490,7 +523,7 @@ export default function Toolbar() {
           type="button"
           onClick={handleZoomOut}
           disabled={!activeTab || activeTab.scale <= 0.3}
-          className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
+          className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 cursor-pointer"
           title="Zoom Out (Ctrl+-)"
         >
           <ZoomOut className="h-4 w-4" />
@@ -501,8 +534,8 @@ export default function Toolbar() {
           type="button"
           onClick={handleResetZoom}
           disabled={!activeTab}
-          className="min-w-[48px] rounded px-1.5 py-0.5 font-mono text-center text-[11px] text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
-          title="Reset zoom to 100% (Ctrl+0)"
+          className="min-w-[48px] rounded px-1.5 py-0.5 font-mono text-center text-[11px] text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 cursor-pointer"
+          title="Reset Zoom to 100% (Ctrl+0)"
         >
           {activeTab ? `${Math.round(activeTab.scale * 100)}%` : "100%"}
         </button>
@@ -512,7 +545,7 @@ export default function Toolbar() {
           type="button"
           onClick={handleZoomIn}
           disabled={!activeTab || activeTab.scale >= 4.0}
-          className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
+          className="rounded p-1 text-neutral-300 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 cursor-pointer"
           title="Zoom In (Ctrl+=)"
         >
           <ZoomIn className="h-4 w-4" />
@@ -523,8 +556,8 @@ export default function Toolbar() {
           type="button"
           onClick={handleResetZoom}
           disabled={!activeTab}
-          className="rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40"
-          title="Reset Zoom"
+          className="rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 cursor-pointer"
+          title="Reset Zoom to Default"
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
