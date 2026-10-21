@@ -325,8 +325,8 @@ export default function App() {
           {/* Top Application Header Bar */}
           <header className="flex h-14 items-center justify-between border-b border-neutral-800 bg-neutral-900/80 px-4 backdrop-blur-md">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600/20 text-red-500 ring-1 ring-red-500/30">
-                <FileText className="h-4 w-4" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600/10 p-1 ring-1 ring-red-500/20">
+                <img src="/icon.svg" alt="Open PDF Studio" className="h-6 w-6 object-contain" />
               </div>
               <div className="flex items-baseline gap-2">
                 <h1 className="text-sm font-semibold tracking-tight text-neutral-100">
