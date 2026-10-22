@@ -90,7 +90,8 @@ export type PageToolsTab =
   | "merge"
   | "split"
   | "watermark"
-  | "header-footer";
+  | "header-footer"
+  | "convert";
 
 /**
  * Zustand state and actions for managing multi-tab PDF documents, search,

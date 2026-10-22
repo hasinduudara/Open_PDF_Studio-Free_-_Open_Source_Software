@@ -30,6 +30,11 @@ import {
   Type,
   FileText,
   Eye,
+  FileArchive,
+  FileDown,
+  Minimize2,
+  Plus,
+  Sparkles,
 } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
@@ -51,6 +56,12 @@ import {
   type PageNumberFormat,
   type PageNumberPosition,
 } from "../utils/pdfStampTools";
+import {
+  imagesToPdf,
+  pdfToImages,
+  compressPdf,
+  type CompressionQuality,
+} from "../utils/pdfConversionTools";
 
 interface PageCardItem {
   id: string;
@@ -775,6 +786,232 @@ export default function PageToolsModal() {
     }
   }
 
+  // ==========================================
+  // TAB 6: CONVERT & COMPRESS STATE & HANDLERS
+  // ==========================================
+  const [convertSubMode, setConvertSubMode] = useState<
+    "image-to-pdf" | "pdf-to-images" | "compress-pdf"
+  >("image-to-pdf");
+
+  // --- Sub-mode 1: Image to PDF ---
+  interface ConvertImageItem {
+    id: string;
+    name: string;
+    data: Uint8Array;
+    previewUrl: string;
+    size: number;
+  }
+  const [convertImages, setConvertImages] = useState<ConvertImageItem[]>([]);
+  const [imgFitA4, setImgFitA4] = useState<boolean>(false);
+
+  async function handleAddConvertImages() {
+    try {
+      const selected = await open({
+        multiple: true,
+        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp"] }],
+      });
+      if (!selected) return;
+
+      const filePaths = Array.isArray(selected) ? selected : [selected];
+      const newItems: ConvertImageItem[] = [];
+
+      for (const fp of filePaths) {
+        if (!fp) continue;
+        const bytes = await readFile(fp);
+        const name = fp.split(/[/\\]/).pop() || "image";
+        const blob = new Blob([bytes]);
+        const previewUrl = URL.createObjectURL(blob);
+
+        newItems.push({
+          id: `conv-img-${Date.now()}-${Math.random()}`,
+          name,
+          data: bytes,
+          previewUrl,
+          size: bytes.length,
+        });
+      }
+
+      setConvertImages((prev) => [...prev, ...newItems]);
+    } catch (err: any) {
+      console.error("Failed to add image files:", err);
+      setErrorMessage(`Failed to add image: ${err?.message || err}`);
+    }
+  }
+
+  function handleRemoveConvertImage(id: string) {
+    setConvertImages((prev) => prev.filter((img) => img.id !== id));
+  }
+
+  function handleMoveConvertImage(index: number, direction: -1 | 1) {
+    setConvertImages((prev) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      return copy;
+    });
+  }
+
+  async function handleConvertImagesToPdf() {
+    if (convertImages.length === 0) return;
+    setIsProcessing(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      const savePath = await save({
+        defaultPath: "Converted_Images.pdf",
+        filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+      });
+
+      if (!savePath) {
+        setIsProcessing(false);
+        return;
+      }
+
+      const inputList = convertImages.map((img) => ({
+        name: img.name,
+        data: img.data,
+      }));
+
+      const pdfBytes = await imagesToPdf(inputList, imgFitA4);
+      await writeFile(savePath, pdfBytes);
+
+      const fileName = savePath.split(/[/\\]/).pop() || "Converted_Images.pdf";
+      addTab({
+        name: fileName,
+        path: savePath,
+        data: pdfBytes,
+      });
+
+      setStatusMessage(`Successfully converted ${convertImages.length} images to "${fileName}"!`);
+      setTimeout(() => {
+        closePageTools();
+      }, 1500);
+    } catch (err: any) {
+      console.error("Failed to convert images to PDF:", err);
+      setErrorMessage(`Failed to convert images: ${err?.message || err}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  // --- Sub-mode 2: PDF to Images ---
+  const [pdfImgFormat, setPdfImgFormat] = useState<"png" | "jpeg">("png");
+  const [pdfImgScale, setPdfImgScale] = useState<number>(2.0);
+  const [exportProgressText, setExportProgressText] = useState<string | null>(null);
+
+  async function handleExportPdfToImages() {
+    if (!activeTab) return;
+    setIsProcessing(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    setExportProgressText("Preparing pages...");
+
+    try {
+      const destFolder = await open({
+        directory: true,
+        title: "Select Destination Folder for Exported Images",
+      });
+
+      if (!destFolder || typeof destFolder !== "string") {
+        setIsProcessing(false);
+        setExportProgressText(null);
+        return;
+      }
+
+      const baseName = activeTab.name.replace(/\.pdf$/i, "");
+      const exportedList = await pdfToImages(
+        activeTab.data,
+        pdfImgFormat,
+        pdfImgScale,
+        (curr, tot) => {
+          setExportProgressText(`Rendering and saving page ${curr} of ${tot}...`);
+        }
+      );
+
+      for (const item of exportedList) {
+        const filePath = `${destFolder}\\${baseName}_${item.name}`;
+        await writeFile(filePath, item.data);
+      }
+
+      setStatusMessage(
+        `Successfully exported ${exportedList.length} pages as ${pdfImgFormat.toUpperCase()} images!`
+      );
+      setTimeout(() => {
+        closePageTools();
+      }, 1500);
+    } catch (err: any) {
+      console.error("Failed to export PDF to images:", err);
+      setErrorMessage(`Failed to export images: ${err?.message || err}`);
+    } finally {
+      setIsProcessing(false);
+      setExportProgressText(null);
+    }
+  }
+
+  // --- Sub-mode 3: Compress PDF ---
+  const [compressQuality, setCompressQuality] = useState<CompressionQuality>("medium");
+  const [compressProgressText, setCompressProgressText] = useState<string | null>(null);
+
+  async function handleCompressPdf() {
+    if (!activeTab) return;
+    setIsProcessing(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    setCompressProgressText("Initializing compression...");
+
+    try {
+      const defaultName = activeTab.name.replace(/\.pdf$/i, "") + "_compressed.pdf";
+      const savePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+      });
+
+      if (!savePath) {
+        setIsProcessing(false);
+        setCompressProgressText(null);
+        return;
+      }
+
+      const origSize = activeTab.data.length;
+
+      const compressedBytes = await compressPdf(
+        activeTab.data,
+        compressQuality,
+        (curr, tot) => {
+          setCompressProgressText(`Compressing page ${curr} of ${tot}...`);
+        }
+      );
+
+      await writeFile(savePath, compressedBytes);
+
+      const newSize = compressedBytes.length;
+      const reductionPercent = Math.round(((origSize - newSize) / origSize) * 100);
+      const origMb = (origSize / (1024 * 1024)).toFixed(2);
+      const newMb = (newSize / (1024 * 1024)).toFixed(2);
+
+      const fileName = savePath.split(/[/\\]/).pop() || defaultName;
+      addTab({
+        name: fileName,
+        path: savePath,
+        data: compressedBytes,
+      });
+
+      setStatusMessage(
+        `Compressed "${fileName}": reduced from ${origMb}MB to ${newMb}MB (${reductionPercent > 0 ? `-${reductionPercent}%` : "flat"})!`
+      );
+    } catch (err: any) {
+      console.error("Failed to compress PDF:", err);
+      setErrorMessage(`Failed to compress PDF: ${err?.message || err}`);
+    } finally {
+      setIsProcessing(false);
+      setCompressProgressText(null);
+    }
+  }
+
   if (!isPageToolsOpen) {
     return null;
   }
@@ -886,6 +1123,23 @@ export default function PageToolsModal() {
             >
               <Hash className="h-3.5 w-3.5 text-rose-400" />
               <span>Header & Footer</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentTab("convert");
+                setErrorMessage(null);
+                setStatusMessage(null);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                currentTab === "convert"
+                  ? "bg-neutral-800 text-white shadow-xs"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              <FileArchive className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Convert & Compress</span>
             </button>
           </div>
 
@@ -2246,6 +2500,451 @@ export default function PageToolsModal() {
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 6: CONVERT & COMPRESS (IMAGES <-> PDF & COMPRESSION)  */}
+          {/* ========================================================= */}
+          {currentTab === "convert" && (
+            <div className="flex-1 flex flex-col p-6 overflow-hidden">
+              {/* Convert Sub-mode Navigation */}
+              <div className="flex items-center gap-2 pb-4 mb-4 border-b border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConvertSubMode("image-to-pdf");
+                    setErrorMessage(null);
+                    setStatusMessage(null);
+                  }}
+                  className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    convertSubMode === "image-to-pdf"
+                      ? "bg-cyan-600 text-white shadow-xs"
+                      : "bg-neutral-950 border border-neutral-800 text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  <span>Image to PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConvertSubMode("pdf-to-images");
+                    setErrorMessage(null);
+                    setStatusMessage(null);
+                  }}
+                  className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    convertSubMode === "pdf-to-images"
+                      ? "bg-cyan-600 text-white shadow-xs"
+                      : "bg-neutral-950 border border-neutral-800 text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  <FileDown className="h-3.5 w-3.5" />
+                  <span>PDF to Images</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConvertSubMode("compress-pdf");
+                    setErrorMessage(null);
+                    setStatusMessage(null);
+                  }}
+                  className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    convertSubMode === "compress-pdf"
+                      ? "bg-cyan-600 text-white shadow-xs"
+                      : "bg-neutral-950 border border-neutral-800 text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  <Minimize2 className="h-3.5 w-3.5" />
+                  <span>Compress PDF</span>
+                </button>
+              </div>
+
+              {/* Sub-mode 1: Image to PDF */}
+              {convertSubMode === "image-to-pdf" && (
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="flex items-center justify-between pb-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-neutral-200">
+                        Combine Images into a PDF
+                      </h3>
+                      <p className="text-xs text-neutral-400">
+                        Select multiple PNG, JPG, or WebP images to generate a multi-page PDF document.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAddConvertImages}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-cyan-500 active:bg-cyan-700 cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Add Images...</span>
+                      </button>
+
+                      {convertImages.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setConvertImages([])}
+                          className="rounded-lg bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-400 hover:text-red-400 hover:bg-neutral-700 transition cursor-pointer"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Images Queue / Empty State */}
+                  {convertImages.length === 0 ? (
+                    <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-neutral-800 bg-neutral-950/40 p-8 text-center my-auto">
+                      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-800 text-neutral-400 ring-1 ring-neutral-700">
+                        <ImageIcon className="h-6 w-6 text-cyan-400" />
+                      </div>
+                      <p className="text-sm font-medium text-neutral-300">
+                        No images added yet
+                      </p>
+                      <p className="mt-1 text-xs text-neutral-500 max-w-sm">
+                        Click "Add Images..." above to select PNG or JPEG photos from your computer.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+                      {/* Image Thumbnails Grid */}
+                      <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 p-1">
+                        {convertImages.map((img, idx) => (
+                          <div
+                            key={img.id}
+                            className="flex flex-col rounded-xl border border-neutral-800 bg-neutral-950/70 p-2.5 group relative hover:border-neutral-700 transition"
+                          >
+                            {/* Page Index Badge */}
+                            <div className="absolute top-3.5 left-3.5 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-mono text-cyan-400 backdrop-blur-xs">
+                              Page {idx + 1}
+                            </div>
+
+                            {/* Thumbnail Preview */}
+                            <div className="h-36 w-full rounded-lg bg-neutral-900 flex items-center justify-center overflow-hidden border border-neutral-800/80 mb-2">
+                              <img
+                                src={img.previewUrl}
+                                alt={img.name}
+                                className="h-full w-full object-contain"
+                              />
+                            </div>
+
+                            {/* Info & Reorder Controls */}
+                            <div className="flex items-center justify-between gap-1 text-xs">
+                              <span className="font-mono text-[11px] text-neutral-300 truncate max-w-[110px]" title={img.name}>
+                                {img.name}
+                              </span>
+
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleMoveConvertImage(idx, -1)}
+                                  disabled={idx === 0}
+                                  className="rounded p-1 text-neutral-400 hover:text-white hover:bg-neutral-800 disabled:opacity-20 cursor-pointer"
+                                  title="Move Earlier"
+                                >
+                                  <ChevronLeft className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleMoveConvertImage(idx, 1)}
+                                  disabled={idx === convertImages.length - 1}
+                                  className="rounded p-1 text-neutral-400 hover:text-white hover:bg-neutral-800 disabled:opacity-20 cursor-pointer"
+                                  title="Move Later"
+                                >
+                                  <ChevronRight className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveConvertImage(img.id)}
+                                  className="rounded p-1 text-neutral-400 hover:text-red-400 hover:bg-neutral-800 cursor-pointer"
+                                  title="Remove Image"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Options & Action Footer */}
+                      <div className="pt-3 border-t border-neutral-800 flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={imgFitA4}
+                            onChange={(e) => setImgFitA4(e.target.checked)}
+                            className="rounded accent-cyan-500 h-4 w-4"
+                          />
+                          <span>Fit and center images onto standard A4 pages</span>
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={handleConvertImagesToPdf}
+                          disabled={convertImages.length === 0 || isProcessing}
+                          className="inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-5 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-cyan-500 active:bg-cyan-700 disabled:opacity-40 cursor-pointer"
+                        >
+                          {isProcessing ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
+                          <span>Convert {convertImages.length} Images & Save PDF</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sub-mode 2: PDF to Images */}
+              {convertSubMode === "pdf-to-images" && (
+                <div className="flex-1 flex flex-col justify-between overflow-hidden">
+                  {!activeTab ? (
+                    <div className="flex flex-1 flex-col items-center justify-center text-center p-8 my-auto">
+                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-neutral-400 ring-1 ring-neutral-700">
+                        <FileDown className="h-7 w-7 text-cyan-400" />
+                      </div>
+                      <h3 className="text-base font-semibold text-neutral-200">
+                        No active PDF document
+                      </h3>
+                      <p className="mt-1 text-xs text-neutral-400 max-w-sm">
+                        Open a PDF document first to export its pages into individual PNG or JPEG images.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col gap-6 max-w-2xl mx-auto w-full justify-center">
+                      <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-6 space-y-6">
+                        <div>
+                          <h3 className="text-base font-semibold text-neutral-100">
+                            Export PDF Pages to Images
+                          </h3>
+                          <p className="mt-1 text-xs text-neutral-400">
+                            Convert every page of <span className="text-neutral-200 font-mono font-semibold">{activeTab.name}</span> ({activeTab.numPages} pages) into image files.
+                          </p>
+                        </div>
+
+                        {/* Format Selection */}
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-neutral-300">
+                            Image Format:
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setPdfImgFormat("png")}
+                              className={`flex flex-col p-3 rounded-xl border text-left transition cursor-pointer ${
+                                pdfImgFormat === "png"
+                                  ? "border-cyan-500 bg-cyan-950/30 text-white ring-1 ring-cyan-500/50"
+                                  : "border-neutral-800 bg-neutral-900/60 text-neutral-400 hover:text-white"
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">PNG Format</span>
+                              <span className="text-[11px] text-neutral-400 mt-0.5">
+                                Lossless quality, sharp text & vector graphics.
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setPdfImgFormat("jpeg")}
+                              className={`flex flex-col p-3 rounded-xl border text-left transition cursor-pointer ${
+                                pdfImgFormat === "jpeg"
+                                  ? "border-cyan-500 bg-cyan-950/30 text-white ring-1 ring-cyan-500/50"
+                                  : "border-neutral-800 bg-neutral-900/60 text-neutral-400 hover:text-white"
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">JPEG Format</span>
+                              <span className="text-[11px] text-neutral-400 mt-0.5">
+                                Smaller file sizes, ideal for photos and web sharing.
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Resolution / Scale Selection */}
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-semibold text-neutral-300">Resolution Scale:</span>
+                            <span className="font-mono text-cyan-400 font-semibold">{pdfImgScale}x</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[
+                              { scale: 1.0, label: "1.0x (Standard 72 DPI)" },
+                              { scale: 2.0, label: "2.0x (High-Res 150 DPI)" },
+                              { scale: 3.0, label: "3.0x (Ultra-HD 300 DPI)" },
+                            ].map((item) => (
+                              <button
+                                key={item.scale}
+                                type="button"
+                                onClick={() => setPdfImgScale(item.scale)}
+                                className={`py-2 px-2.5 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                                  pdfImgScale === item.scale
+                                    ? "border-cyan-500 bg-cyan-600 text-white"
+                                    : "border-neutral-800 bg-neutral-900 text-neutral-400 hover:text-white"
+                                }`}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Progress Status */}
+                        {exportProgressText && (
+                          <div className="flex items-center gap-2.5 rounded-xl bg-cyan-950/50 border border-cyan-800/80 p-3 text-xs text-cyan-200">
+                            <Loader2 className="h-4 w-4 animate-spin text-cyan-400 flex-shrink-0" />
+                            <span>{exportProgressText}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex justify-end pt-2">
+                        <button
+                          type="button"
+                          onClick={handleExportPdfToImages}
+                          disabled={isProcessing}
+                          className="inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-6 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-cyan-500 active:bg-cyan-700 disabled:opacity-40 cursor-pointer"
+                        >
+                          {isProcessing ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FolderDown className="h-4 w-4" />
+                          )}
+                          <span>Select Folder & Export {activeTab.numPages} Images</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sub-mode 3: Compress PDF */}
+              {convertSubMode === "compress-pdf" && (
+                <div className="flex-1 flex flex-col justify-between overflow-hidden">
+                  {!activeTab ? (
+                    <div className="flex flex-1 flex-col items-center justify-center text-center p-8 my-auto">
+                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-neutral-400 ring-1 ring-neutral-700">
+                        <Minimize2 className="h-7 w-7 text-cyan-400" />
+                      </div>
+                      <h3 className="text-base font-semibold text-neutral-200">
+                        No active PDF document
+                      </h3>
+                      <p className="mt-1 text-xs text-neutral-400 max-w-sm">
+                        Open a PDF document first to compress its file size.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col gap-6 max-w-2xl mx-auto w-full justify-center">
+                      <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-6 space-y-6">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h3 className="text-base font-semibold text-neutral-100">
+                              Compress PDF Document
+                            </h3>
+                            <p className="mt-1 text-xs text-neutral-400">
+                              Downsamples image streams and recompresses pages to drastically decrease file size.
+                            </p>
+                          </div>
+
+                          <div className="rounded-lg bg-neutral-900 border border-neutral-800 px-3 py-1.5 text-right">
+                            <span className="text-[10px] text-neutral-500 block uppercase font-mono">Current Size</span>
+                            <span className="text-xs font-mono font-semibold text-neutral-200">
+                              {(activeTab.data.length / (1024 * 1024)).toFixed(2)} MB
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Compression Strength Cards */}
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-neutral-300">
+                            Compression Level:
+                          </label>
+                          <div className="grid grid-cols-3 gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setCompressQuality("high")}
+                              className={`flex flex-col p-3 rounded-xl border text-left transition cursor-pointer ${
+                                compressQuality === "high"
+                                  ? "border-cyan-500 bg-cyan-950/30 text-white ring-1 ring-cyan-500/50"
+                                  : "border-neutral-800 bg-neutral-900/60 text-neutral-400 hover:text-white"
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">Low Compression</span>
+                              <span className="text-[11px] text-neutral-400 mt-1">
+                                High visual fidelity, ~30–50% reduction.
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setCompressQuality("medium")}
+                              className={`flex flex-col p-3 rounded-xl border text-left transition cursor-pointer ${
+                                compressQuality === "medium"
+                                  ? "border-cyan-500 bg-cyan-950/30 text-white ring-1 ring-cyan-500/50"
+                                  : "border-neutral-800 bg-neutral-900/60 text-neutral-400 hover:text-white"
+                              }`}
+                            >
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs font-semibold">Medium</span>
+                                <span className="rounded bg-cyan-500/20 px-1 text-[9px] font-medium text-cyan-300">Recommended</span>
+                              </div>
+                              <span className="text-[11px] text-neutral-400 mt-1">
+                                Balanced quality and size, ~60–80% reduction.
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setCompressQuality("low")}
+                              className={`flex flex-col p-3 rounded-xl border text-left transition cursor-pointer ${
+                                compressQuality === "low"
+                                  ? "border-cyan-500 bg-cyan-950/30 text-white ring-1 ring-cyan-500/50"
+                                  : "border-neutral-800 bg-neutral-900/60 text-neutral-400 hover:text-white"
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">Maximum</span>
+                              <span className="text-[11px] text-neutral-400 mt-1">
+                                Lowest file size, ideal for email, ~80–90% reduction.
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Progress Status */}
+                        {compressProgressText && (
+                          <div className="flex items-center gap-2.5 rounded-xl bg-cyan-950/50 border border-cyan-800/80 p-3 text-xs text-cyan-200">
+                            <Loader2 className="h-4 w-4 animate-spin text-cyan-400 flex-shrink-0" />
+                            <span>{compressProgressText}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex justify-end pt-2">
+                        <button
+                          type="button"
+                          onClick={handleCompressPdf}
+                          disabled={isProcessing}
+                          className="inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-6 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-cyan-500 active:bg-cyan-700 disabled:opacity-40 cursor-pointer"
+                        >
+                          {isProcessing ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-4 w-4" />
+                          )}
+                          <span>Compress & Save PDF As...</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

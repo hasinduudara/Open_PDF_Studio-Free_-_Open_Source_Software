@@ -9,6 +9,7 @@ import {
   Clock,
   Trash2,
   X,
+  FileArchive,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
@@ -344,6 +345,15 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => openPageTools("convert")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-700 hover:text-white active:bg-neutral-800 cursor-pointer"
+                title="Convert Images to PDF (Image to PDF)"
+              >
+                <FileArchive className="h-4 w-4 text-cyan-400" />
+                <span>Image to PDF</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => openPageTools("merge")}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-700 hover:text-white active:bg-neutral-800 cursor-pointer"
                 title="Combine multiple PDF documents into one (Merge PDFs)"
@@ -396,6 +406,16 @@ export default function App() {
                   >
                     <Layers className="h-4 w-4 text-blue-400" />
                     <span>Merge PDFs</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openPageTools("convert")}
+                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-800 px-4 py-2 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700 hover:text-white active:bg-neutral-850 cursor-pointer"
+                    title="Convert images into a PDF document"
+                  >
+                    <FileArchive className="h-4 w-4 text-cyan-400" />
+                    <span>Image to PDF</span>
                   </button>
                 </div>
 
