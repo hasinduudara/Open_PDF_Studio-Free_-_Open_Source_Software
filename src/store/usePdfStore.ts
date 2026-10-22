@@ -163,6 +163,13 @@ export interface PdfState {
   updateAnnotation: (tabId: string, id: string, updates: Partial<PdfAnnotation>) => void;
   deleteAnnotation: (tabId: string, id: string) => void;
   undoLastAnnotation: (tabId?: string) => void;
+
+  // Page & file tools modal state
+  isPageToolsOpen: boolean;
+  pageToolsInitialTab: "organize" | "merge" | "split";
+  openPageTools: (initialTab?: "organize" | "merge" | "split") => void;
+  closePageTools: () => void;
+  updateTabData: (tabId: string, newData: Uint8Array) => void;
 }
 
 export const usePdfStore = create<PdfState>((set, get) => ({
@@ -182,6 +189,9 @@ export const usePdfStore = create<PdfState>((set, get) => ({
 
   activeTool: "select",
   activeColor: "#facc15",
+
+  isPageToolsOpen: false,
+  pageToolsInitialTab: "organize",
 
   setPdfDoc: (doc) => {
     set({ pdfDoc: doc });
@@ -486,6 +496,29 @@ export const usePdfStore = create<PdfState>((set, get) => ({
         return {
           ...tab,
           annotations: currentList.slice(0, currentList.length - 1),
+        };
+      }),
+    }));
+  },
+
+  // Page & file tools actions
+  openPageTools: (initialTab = "organize") => {
+    set({ isPageToolsOpen: true, pageToolsInitialTab: initialTab });
+  },
+
+  closePageTools: () => {
+    set({ isPageToolsOpen: false });
+  },
+
+  updateTabData: (tabId, newData) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== tabId) return tab;
+        return {
+          ...tab,
+          data: newData,
+          currentPage: 1,
+          scrollTargetPage: 1,
         };
       }),
     }));

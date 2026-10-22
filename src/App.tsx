@@ -19,6 +19,7 @@ import Toolbar from "./components/Toolbar";
 import TabBar from "./components/TabBar";
 import Sidebar from "./components/Sidebar";
 import PdfViewer from "./components/PdfViewer";
+import PageToolsModal from "./components/PageToolsModal";
 import "./App.css";
 
 /**
@@ -54,6 +55,7 @@ export default function App() {
     removeRecentFile,
     undoLastAnnotation,
     setActiveTool,
+    openPageTools,
   } = usePdfStore();
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
@@ -342,8 +344,17 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => openPageTools("merge")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-700 hover:text-white active:bg-neutral-800 cursor-pointer"
+                title="Combine multiple PDF documents into one (Merge PDFs)"
+              >
+                <Layers className="h-4 w-4 text-blue-400" />
+                <span>Merge PDFs</span>
+              </button>
+              <button
+                type="button"
                 onClick={handleOpenPdf}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-red-500 active:bg-red-700"
+                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-red-500 active:bg-red-700 cursor-pointer"
               >
                 <FolderOpen className="h-4 w-4" />
                 <span>Open PDF</span>
@@ -368,14 +379,25 @@ export default function App() {
                 </p>
 
                 {/* Action Trigger */}
-                <button
-                  type="button"
-                  onClick={handleOpenPdf}
-                  className="mt-5 inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-500 active:bg-red-700"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  <span>Browse Files</span>
-                </button>
+                <div className="mt-5 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleOpenPdf}
+                    className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-500 active:bg-red-700 cursor-pointer"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    <span>Browse Files</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openPageTools("merge")}
+                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-800 px-4 py-2 text-sm font-medium text-neutral-200 transition hover:bg-neutral-700 hover:text-white active:bg-neutral-850 cursor-pointer"
+                  >
+                    <Layers className="h-4 w-4 text-blue-400" />
+                    <span>Merge PDFs</span>
+                  </button>
+                </div>
 
                 {/* Highlights */}
                 <div className="mt-6 grid grid-cols-3 gap-3 border-t border-neutral-800/80 pt-5 text-left w-full">
@@ -474,6 +496,9 @@ export default function App() {
           </main>
         </>
       )}
+
+      {/* Page & File Tools Modal */}
+      <PageToolsModal />
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
   Download,
   Check,
   Loader2,
+  Layers,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
@@ -52,6 +53,7 @@ export default function Toolbar() {
     activeColor,
     setActiveColor,
     undoLastAnnotation,
+    openPageTools,
   } = usePdfStore();
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -262,6 +264,17 @@ export default function Toolbar() {
             <Download className="h-3.5 w-3.5 text-neutral-300" />
           )}
           <span>{saveStatus || "Save As"}</span>
+        </button>
+
+        {/* Page & File Tools Button */}
+        <button
+          type="button"
+          onClick={() => openPageTools(activeTab ? "organize" : "merge")}
+          className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1 font-medium text-neutral-200 transition hover:bg-neutral-700 active:bg-neutral-850 hover:text-white cursor-pointer"
+          title="Organize, Merge & Split Pages (Page Tools)"
+        >
+          <Layers className="h-3.5 w-3.5 text-amber-400" />
+          <span>Page Tools</span>
         </button>
       </div>
 
