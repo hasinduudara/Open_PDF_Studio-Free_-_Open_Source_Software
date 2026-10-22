@@ -85,6 +85,13 @@ function persistRecentFiles(files: RecentFile[]) {
   }
 }
 
+export type PageToolsTab =
+  | "organize"
+  | "merge"
+  | "split"
+  | "watermark"
+  | "header-footer";
+
 /**
  * Zustand state and actions for managing multi-tab PDF documents, search,
  * dark reading mode, recent files, annotations, and layout.
@@ -163,11 +170,10 @@ export interface PdfState {
   updateAnnotation: (tabId: string, id: string, updates: Partial<PdfAnnotation>) => void;
   deleteAnnotation: (tabId: string, id: string) => void;
   undoLastAnnotation: (tabId?: string) => void;
-
   // Page & file tools modal state
   isPageToolsOpen: boolean;
-  pageToolsInitialTab: "organize" | "merge" | "split";
-  openPageTools: (initialTab?: "organize" | "merge" | "split") => void;
+  pageToolsInitialTab: PageToolsTab;
+  openPageTools: (initialTab?: PageToolsTab) => void;
   closePageTools: () => void;
   updateTabData: (tabId: string, newData: Uint8Array) => void;
 }

@@ -24,10 +24,16 @@ import {
   CheckCircle2,
   FolderDown,
   RefreshCw,
+  Stamp,
+  Hash,
+  Image as ImageIcon,
+  Type,
+  FileText,
+  Eye,
 } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
-import { usePdfStore, type PdfTab } from "../store/usePdfStore";
+import { usePdfStore, type PdfTab, type PageToolsTab } from "../store/usePdfStore";
 import {
   mergePdfFiles,
   applyPageOperations,
@@ -36,6 +42,15 @@ import {
   generateEveryNPageRanges,
   type PageOperation,
 } from "../utils/pdfPageTools";
+import {
+  applyWatermarkToPdf,
+  applyHeaderFooterAndPageNumbers,
+  type WatermarkOptions,
+  type WatermarkPosition,
+  type HeaderFooterOptions,
+  type PageNumberFormat,
+  type PageNumberPosition,
+} from "../utils/pdfStampTools";
 
 interface PageCardItem {
   id: string;
@@ -138,7 +153,7 @@ export default function PageToolsModal() {
   const activeTab: PdfTab | undefined = tabs.find((t) => t.id === activeTabId);
 
   // Active sub-tab inside the modal
-  const [currentTab, setCurrentTab] = useState<"organize" | "merge" | "split">(
+  const [currentTab, setCurrentTab] = useState<PageToolsTab>(
     pageToolsInitialTab
   );
 
@@ -579,6 +594,187 @@ export default function PageToolsModal() {
     }
   }
 
+  // ==========================================
+  // TAB 4: WATERMARK STATE & HANDLERS
+  // ==========================================
+  const [wmType, setWmType] = useState<"text" | "image">("text");
+  const [wmText, setWmText] = useState<string>("CONFIDENTIAL");
+  const [wmFontSize, setWmFontSize] = useState<number>(48);
+  const [wmColor, setWmColor] = useState<string>("#ef4444");
+  const [wmOpacity, setWmOpacity] = useState<number>(0.25);
+  const [wmRotation, setWmRotation] = useState<number>(-45);
+  const [wmPosition, setWmPosition] = useState<WatermarkPosition>("center");
+  const [wmImageScale, setWmImageScale] = useState<number>(0.5);
+  const [wmPageRangeMode, setWmPageRangeMode] = useState<"all" | "custom">("all");
+  const [wmCustomRange, setWmCustomRange] = useState<string>("");
+  const [wmImageData, setWmImageData] = useState<Uint8Array | null>(null);
+  const [wmImageName, setWmImageName] = useState<string>("");
+  const [wmImagePreviewUrl, setWmImagePreviewUrl] = useState<string | null>(null);
+
+  async function handleSelectWatermarkImage() {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Image Files", extensions: ["png", "jpg", "jpeg"] }],
+      });
+      if (!selected) return;
+      const filePath = typeof selected === "string" ? selected : selected[0];
+      if (!filePath) return;
+      const fileName = filePath.split(/[/\\]/).pop() || "watermark-image";
+      const fileBytes = await readFile(filePath);
+      setWmImageData(fileBytes);
+      setWmImageName(fileName);
+
+      const blob = new Blob([fileBytes]);
+      const url = URL.createObjectURL(blob);
+      setWmImagePreviewUrl(url);
+    } catch (err: any) {
+      console.error("Failed to load watermark image:", err);
+      setErrorMessage(`Failed to load image: ${err?.message || err}`);
+    }
+  }
+
+  async function handleApplyWatermark(saveAs: boolean) {
+    if (!activeTab) return;
+    setIsProcessing(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      if (wmType === "image" && !wmImageData) {
+        throw new Error("Please select a PNG or JPG image file for the watermark.");
+      }
+
+      const options: WatermarkOptions = {
+        type: wmType,
+        text: wmType === "text" ? wmText : undefined,
+        imageData: wmType === "image" && wmImageData ? wmImageData : undefined,
+        imageFormat: wmImageName.toLowerCase().endsWith(".png") ? "png" : "jpg",
+        fontSize: wmFontSize,
+        color: wmColor,
+        opacity: wmOpacity,
+        rotation: wmRotation,
+        position: wmPosition,
+        imageScale: wmImageScale,
+        pageRange: wmPageRangeMode === "custom" ? wmCustomRange : "all",
+      };
+
+      const resultBytes = await applyWatermarkToPdf(activeTab.data, options);
+
+      if (saveAs) {
+        const defaultName = activeTab.name.replace(/\.pdf$/i, "") + "_watermarked.pdf";
+        const savePath = await save({
+          defaultPath: defaultName,
+          filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+        });
+
+        if (!savePath) {
+          setIsProcessing(false);
+          return;
+        }
+
+        await writeFile(savePath, resultBytes);
+        const savedFileName = savePath.split(/[/\\]/).pop() || defaultName;
+
+        addTab({
+          name: savedFileName,
+          path: savePath,
+          data: resultBytes,
+        });
+
+        setStatusMessage(`Watermarked PDF saved successfully as "${savedFileName}"!`);
+      } else {
+        updateTabData(activeTab.id, resultBytes);
+        setStatusMessage("Watermark applied successfully to current document!");
+      }
+    } catch (err: any) {
+      console.error("Failed to apply watermark:", err);
+      setErrorMessage(`Failed to apply watermark: ${err?.message || err}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  // ==========================================
+  // TAB 5: HEADERS, FOOTERS & PAGE NUMBERS STATE & HANDLERS
+  // ==========================================
+  const [hfHeaderLeft, setHfHeaderLeft] = useState<string>("");
+  const [hfHeaderCenter, setHfHeaderCenter] = useState<string>("");
+  const [hfHeaderRight, setHfHeaderRight] = useState<string>("");
+  const [hfFooterLeft, setHfFooterLeft] = useState<string>("");
+  const [hfFooterCenter, setHfFooterCenter] = useState<string>("");
+  const [hfFooterRight, setHfFooterRight] = useState<string>("");
+
+  const [hfIncludePageNumbers, setHfIncludePageNumbers] = useState<boolean>(true);
+  const [hfPageNumberFormat, setHfPageNumberFormat] = useState<PageNumberFormat>("page-n-of-total");
+  const [hfPageNumberPosition, setHfPageNumberPosition] = useState<PageNumberPosition>("bottom-center");
+  const [hfPageNumberStartOffset, setHfPageNumberStartOffset] = useState<number>(1);
+  const [hfPageNumberMargin, setHfPageNumberMargin] = useState<number>(30);
+  const [hfFontSize, setHfFontSize] = useState<number>(10);
+  const [hfColor, setHfColor] = useState<string>("#4b5563");
+  const [hfPageRangeMode, setHfPageRangeMode] = useState<"all" | "custom">("all");
+  const [hfCustomRange, setHfCustomRange] = useState<string>("");
+
+  async function handleApplyHeaderFooter(saveAs: boolean) {
+    if (!activeTab) return;
+    setIsProcessing(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      const options: HeaderFooterOptions = {
+        headerLeft: hfHeaderLeft.trim() || undefined,
+        headerCenter: hfHeaderCenter.trim() || undefined,
+        headerRight: hfHeaderRight.trim() || undefined,
+        footerLeft: hfFooterLeft.trim() || undefined,
+        footerCenter: hfFooterCenter.trim() || undefined,
+        footerRight: hfFooterRight.trim() || undefined,
+        includePageNumbers: hfIncludePageNumbers,
+        pageNumberFormat: hfPageNumberFormat,
+        pageNumberPosition: hfPageNumberPosition,
+        pageNumberStartOffset: hfPageNumberStartOffset,
+        pageNumberMargin: hfPageNumberMargin,
+        fontSize: hfFontSize,
+        color: hfColor,
+        pageRange: hfPageRangeMode === "custom" ? hfCustomRange : "all",
+      };
+
+      const resultBytes = await applyHeaderFooterAndPageNumbers(activeTab.data, options);
+
+      if (saveAs) {
+        const defaultName = activeTab.name.replace(/\.pdf$/i, "") + "_numbered.pdf";
+        const savePath = await save({
+          defaultPath: defaultName,
+          filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+        });
+
+        if (!savePath) {
+          setIsProcessing(false);
+          return;
+        }
+
+        await writeFile(savePath, resultBytes);
+        const savedFileName = savePath.split(/[/\\]/).pop() || defaultName;
+
+        addTab({
+          name: savedFileName,
+          path: savePath,
+          data: resultBytes,
+        });
+
+        setStatusMessage(`Document saved with headers, footers & page numbers as "${savedFileName}"!`);
+      } else {
+        updateTabData(activeTab.id, resultBytes);
+        setStatusMessage("Headers, footers & page numbers applied to current document!");
+      }
+    } catch (err: any) {
+      console.error("Failed to apply headers/footers:", err);
+      setErrorMessage(`Failed to apply headers and page numbers: ${err?.message || err}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
   if (!isPageToolsOpen) {
     return null;
   }
@@ -656,6 +852,40 @@ export default function PageToolsModal() {
             >
               <Scissors className="h-3.5 w-3.5 text-emerald-400" />
               <span>Split PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentTab("watermark");
+                setErrorMessage(null);
+                setStatusMessage(null);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                currentTab === "watermark"
+                  ? "bg-neutral-800 text-white shadow-xs"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              <Stamp className="h-3.5 w-3.5 text-purple-400" />
+              <span>Watermark</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentTab("header-footer");
+                setErrorMessage(null);
+                setStatusMessage(null);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                currentTab === "header-footer"
+                  ? "bg-neutral-800 text-white shadow-xs"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              <Hash className="h-3.5 w-3.5 text-rose-400" />
+              <span>Header & Footer</span>
             </button>
           </div>
 
@@ -1205,6 +1435,816 @@ export default function PageToolsModal() {
                       )}
                       <span>Select Folder & Split PDFs</span>
                     </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 4: WATERMARK (TEXT & IMAGE)                           */}
+          {/* ========================================================= */}
+          {currentTab === "watermark" && (
+            <div className="flex-1 flex flex-col p-6 overflow-hidden">
+              {!activeTab ? (
+                <div className="flex flex-1 flex-col items-center justify-center text-center p-8">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-neutral-400 ring-1 ring-neutral-700">
+                    <Stamp className="h-7 w-7 text-purple-400" />
+                  </div>
+                  <h3 className="text-base font-semibold text-neutral-200">
+                    No active PDF selected
+                  </h3>
+                  <p className="mt-1 text-xs text-neutral-400 max-w-sm">
+                    Open a PDF document first to apply custom text or image watermarks.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-1 gap-6 overflow-hidden">
+                  {/* Left Controls Column */}
+                  <div className="flex-1 flex flex-col gap-5 overflow-y-auto pr-2">
+                    {/* Watermark Type Selector */}
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-semibold text-neutral-300">
+                        Watermark Type:
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-neutral-950 border border-neutral-800">
+                        <button
+                          type="button"
+                          onClick={() => setWmType("text")}
+                          className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition cursor-pointer ${
+                            wmType === "text"
+                              ? "bg-purple-600 text-white shadow-sm"
+                              : "text-neutral-400 hover:text-white"
+                          }`}
+                        >
+                          <Type className="h-3.5 w-3.5" />
+                          <span>Text Watermark</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWmType("image")}
+                          className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition cursor-pointer ${
+                            wmType === "image"
+                              ? "bg-purple-600 text-white shadow-sm"
+                              : "text-neutral-400 hover:text-white"
+                          }`}
+                        >
+                          <ImageIcon className="h-3.5 w-3.5" />
+                          <span>Image Watermark</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Text Watermark Controls */}
+                    {wmType === "text" && (
+                      <div className="flex flex-col gap-4 rounded-xl bg-neutral-950/60 p-4 border border-neutral-800">
+                        {/* Text Input & Quick Presets */}
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-neutral-300">
+                            Watermark Text:
+                          </label>
+                          <input
+                            type="text"
+                            value={wmText}
+                            onChange={(e) => setWmText(e.target.value)}
+                            placeholder="e.g. CONFIDENTIAL, DRAFT, SAMPLE"
+                            className="w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3.5 py-2.5 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-purple-500"
+                          />
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {["CONFIDENTIAL", "DRAFT", "SAMPLE", "COPY", "ORIGINAL", "TOP SECRET"].map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => setWmText(preset)}
+                                className={`rounded px-2 py-0.5 text-[10px] font-mono transition cursor-pointer ${
+                                  wmText === preset
+                                    ? "bg-purple-600/30 text-purple-300 border border-purple-500/50"
+                                    : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                                }`}
+                              >
+                                {preset}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Font Size & Color */}
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-neutral-800/80">
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-neutral-300 font-medium">Font Size:</span>
+                              <span className="font-mono text-purple-400">{wmFontSize} pt</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={14}
+                              max={120}
+                              value={wmFontSize}
+                              onChange={(e) => setWmFontSize(parseInt(e.target.value, 10))}
+                              className="w-full accent-purple-500 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <span className="text-xs text-neutral-300 font-medium block">Color:</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={wmColor}
+                                onChange={(e) => setWmColor(e.target.value)}
+                                className="h-7 w-8 rounded cursor-pointer bg-transparent border-0"
+                              />
+                              <div className="flex items-center gap-1">
+                                {["#ef4444", "#3b82f6", "#10b981", "#f59e0b", "#6b7280", "#000000"].map((c) => (
+                                  <button
+                                    key={c}
+                                    type="button"
+                                    onClick={() => setWmColor(c)}
+                                    style={{ backgroundColor: c }}
+                                    className={`h-5 w-5 rounded-full border cursor-pointer transition ${
+                                      wmColor.toLowerCase() === c.toLowerCase()
+                                        ? "border-white ring-1 ring-purple-400 scale-110"
+                                        : "border-neutral-700 hover:scale-105"
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Image Watermark Controls */}
+                    {wmType === "image" && (
+                      <div className="flex flex-col gap-4 rounded-xl bg-neutral-950/60 p-4 border border-neutral-800">
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-neutral-300">
+                            Select Watermark Image:
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={handleSelectWatermarkImage}
+                              className="inline-flex items-center gap-2 rounded-lg bg-neutral-800 border border-neutral-700 px-3.5 py-2 text-xs font-medium text-neutral-200 transition hover:bg-neutral-700 hover:text-white cursor-pointer"
+                            >
+                              <FolderOpen className="h-4 w-4 text-purple-400" />
+                              <span>{wmImageData ? "Change Image..." : "Choose PNG/JPG..."}</span>
+                            </button>
+                            {wmImageName && (
+                              <span className="text-xs text-neutral-300 font-mono truncate max-w-xs">
+                                {wmImageName}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Image Scale Slider */}
+                        <div className="space-y-1.5 pt-2 border-t border-neutral-800/80">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-300 font-medium">Image Scale:</span>
+                            <span className="font-mono text-purple-400">{Math.round(wmImageScale * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.1}
+                            max={1.5}
+                            step={0.05}
+                            value={wmImageScale}
+                            onChange={(e) => setWmImageScale(parseFloat(e.target.value))}
+                            className="w-full accent-purple-500 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Common Position, Angle & Opacity */}
+                    <div className="flex flex-col gap-4 rounded-xl bg-neutral-950/60 p-4 border border-neutral-800">
+                      {/* Position Grid */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          Watermark Position:
+                        </label>
+                        <div className="grid grid-cols-3 gap-1.5 text-xs">
+                          {[
+                            { pos: "center", label: "Center" },
+                            { pos: "top-left", label: "Top-Left" },
+                            { pos: "top-right", label: "Top-Right" },
+                            { pos: "bottom-left", label: "Bottom-Left" },
+                            { pos: "bottom-right", label: "Bottom-Right" },
+                            { pos: "tile", label: "Tile Pattern" },
+                          ].map((item) => (
+                            <button
+                              key={item.pos}
+                              type="button"
+                              onClick={() => setWmPosition(item.pos as WatermarkPosition)}
+                              className={`rounded-lg py-1.5 px-2 text-[11px] font-medium transition cursor-pointer ${
+                                wmPosition === item.pos
+                                  ? "bg-purple-600 text-white shadow-xs"
+                                  : "bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white"
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Rotation Angle */}
+                      <div className="space-y-2 pt-2 border-t border-neutral-800/80">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-300 font-medium">Rotation Angle:</span>
+                          <span className="font-mono text-purple-400">{wmRotation}°</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={-180}
+                          max={180}
+                          step={5}
+                          value={wmRotation}
+                          onChange={(e) => setWmRotation(parseInt(e.target.value, 10))}
+                          className="w-full accent-purple-500 cursor-pointer"
+                        />
+                        <div className="flex gap-1.5 pt-1">
+                          {[-45, 0, 45, 90].map((deg) => (
+                            <button
+                              key={deg}
+                              type="button"
+                              onClick={() => setWmRotation(deg)}
+                              className={`rounded px-2 py-0.5 text-[10px] font-mono transition cursor-pointer ${
+                                wmRotation === deg
+                                  ? "bg-purple-600/30 text-purple-300 border border-purple-500/50"
+                                  : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                              }`}
+                            >
+                              {deg}° {deg === -45 ? "(Diagonal)" : deg === 0 ? "(Flat)" : ""}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Opacity Slider */}
+                      <div className="space-y-1.5 pt-2 border-t border-neutral-800/80">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-300 font-medium">Opacity / Transparency:</span>
+                          <span className="font-mono text-purple-400">{Math.round(wmOpacity * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0.05}
+                          max={1.0}
+                          step={0.05}
+                          value={wmOpacity}
+                          onChange={(e) => setWmOpacity(parseFloat(e.target.value))}
+                          className="w-full accent-purple-500 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Page Range Targeting */}
+                      <div className="space-y-2 pt-2 border-t border-neutral-800/80">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          Target Pages:
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="wmPageRange"
+                              checked={wmPageRangeMode === "all"}
+                              onChange={() => setWmPageRangeMode("all")}
+                              className="accent-purple-500"
+                            />
+                            <span>All Pages ({activeTab.numPages})</span>
+                          </label>
+                          <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="wmPageRange"
+                              checked={wmPageRangeMode === "custom"}
+                              onChange={() => setWmPageRangeMode("custom")}
+                              className="accent-purple-500"
+                            />
+                            <span>Custom Range</span>
+                          </label>
+                        </div>
+                        {wmPageRangeMode === "custom" && (
+                          <input
+                            type="text"
+                            value={wmCustomRange}
+                            onChange={(e) => setWmCustomRange(e.target.value)}
+                            placeholder="e.g. 1-3, 5, 7"
+                            className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-3 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 font-mono focus:outline-none focus:border-purple-500"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Live Visual Preview Card & Actions */}
+                  <div className="w-80 flex flex-col gap-4 flex-shrink-0">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-neutral-300">
+                      <Eye className="h-4 w-4 text-purple-400" />
+                      <span>Live Preview</span>
+                    </div>
+
+                    {/* Paper Preview Sheet */}
+                    <div className="relative w-full aspect-[1/1.35] bg-white rounded-lg shadow-xl overflow-hidden flex items-center justify-center border border-neutral-300 select-none">
+                      {/* Simulated text lines */}
+                      <div className="absolute inset-5 space-y-2 opacity-15 pointer-events-none">
+                        <div className="h-2.5 bg-neutral-800 rounded w-1/3 mb-4" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-5/6" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-4/6" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-3/4" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full mt-4" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-5/6" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-2/3" />
+                      </div>
+
+                      {/* Watermark Rendering */}
+                      {wmPosition === "tile" ? (
+                        <div className="absolute inset-0 grid grid-cols-2 grid-rows-3 p-4 pointer-events-none">
+                          {[0, 1, 2, 3, 4, 5].map((tileIdx) => (
+                            <div key={tileIdx} className="flex items-center justify-center">
+                              {wmType === "text" ? (
+                                <span
+                                  style={{
+                                    transform: `rotate(${wmRotation}deg)`,
+                                    color: wmColor,
+                                    opacity: wmOpacity,
+                                    fontSize: `${Math.max(8, wmFontSize * 0.28)}px`,
+                                  }}
+                                  className="font-bold tracking-wider select-none font-sans whitespace-nowrap"
+                                >
+                                  {wmText || "CONFIDENTIAL"}
+                                </span>
+                              ) : wmImagePreviewUrl ? (
+                                <img
+                                  src={wmImagePreviewUrl}
+                                  alt="watermark-tile"
+                                  style={{
+                                    transform: `rotate(${wmRotation}deg)`,
+                                    opacity: wmOpacity,
+                                    width: `${Math.max(20, 60 * wmImageScale * 0.5)}px`,
+                                  }}
+                                  className="object-contain"
+                                />
+                              ) : (
+                                <Stamp
+                                  style={{
+                                    transform: `rotate(${wmRotation}deg)`,
+                                    opacity: wmOpacity,
+                                  }}
+                                  className="h-8 w-8 text-neutral-400"
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div
+                          className={`absolute inset-0 flex pointer-events-none p-6 ${
+                            wmPosition === "top-left"
+                              ? "items-start justify-start"
+                              : wmPosition === "top-right"
+                              ? "items-start justify-end"
+                              : wmPosition === "bottom-left"
+                              ? "items-end justify-start"
+                              : wmPosition === "bottom-right"
+                              ? "items-end justify-end"
+                              : "items-center justify-center"
+                          }`}
+                        >
+                          {wmType === "text" ? (
+                            <span
+                              style={{
+                                transform: `rotate(${wmRotation}deg)`,
+                                color: wmColor,
+                                opacity: wmOpacity,
+                                fontSize: `${Math.max(10, wmFontSize * 0.38)}px`,
+                              }}
+                              className="font-bold tracking-wider select-none font-sans whitespace-nowrap"
+                            >
+                              {wmText || "CONFIDENTIAL"}
+                            </span>
+                          ) : wmImagePreviewUrl ? (
+                            <img
+                              src={wmImagePreviewUrl}
+                              alt="watermark-preview"
+                              style={{
+                                transform: `rotate(${wmRotation}deg)`,
+                                opacity: wmOpacity,
+                                width: `${Math.max(30, 140 * wmImageScale)}px`,
+                              }}
+                              className="object-contain"
+                            />
+                          ) : (
+                            <Stamp
+                              style={{
+                                transform: `rotate(${wmRotation}deg)`,
+                                opacity: wmOpacity,
+                              }}
+                              className="h-14 w-14 text-neutral-400"
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex flex-col gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleApplyWatermark(false)}
+                        disabled={isProcessing}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-purple-500 active:bg-purple-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        {isProcessing ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="h-4 w-4" />
+                        )}
+                        <span>Apply to Current PDF</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyWatermark(true)}
+                        disabled={isProcessing}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-neutral-800 border border-neutral-700 px-4 py-2.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-700 hover:text-white active:bg-neutral-850 disabled:opacity-40 cursor-pointer"
+                      >
+                        <Save className="h-4 w-4" />
+                        <span>Save As New File...</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 5: HEADERS, FOOTERS & PAGE NUMBERS                    */}
+          {/* ========================================================= */}
+          {currentTab === "header-footer" && (
+            <div className="flex-1 flex flex-col p-6 overflow-hidden">
+              {!activeTab ? (
+                <div className="flex flex-1 flex-col items-center justify-center text-center p-8">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-neutral-400 ring-1 ring-neutral-700">
+                    <Hash className="h-7 w-7 text-rose-400" />
+                  </div>
+                  <h3 className="text-base font-semibold text-neutral-200">
+                    No active PDF selected
+                  </h3>
+                  <p className="mt-1 text-xs text-neutral-400 max-w-sm">
+                    Open a PDF document first to configure headers, footers, and page numbers.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-1 gap-6 overflow-hidden">
+                  {/* Left Controls Column */}
+                  <div className="flex-1 flex flex-col gap-5 overflow-y-auto pr-2">
+                    {/* Header Inputs Section */}
+                    <div className="flex flex-col gap-3 rounded-xl bg-neutral-950/60 p-4 border border-neutral-800">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-neutral-200">
+                        <FileText className="h-4 w-4 text-rose-400" />
+                        <span>Header Slots (Top Margin)</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-neutral-400">Left Header:</span>
+                          <input
+                            type="text"
+                            value={hfHeaderLeft}
+                            onChange={(e) => setHfHeaderLeft(e.target.value)}
+                            placeholder="e.g. Document Title"
+                            className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-rose-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-neutral-400">Center Header:</span>
+                          <input
+                            type="text"
+                            value={hfHeaderCenter}
+                            onChange={(e) => setHfHeaderCenter(e.target.value)}
+                            placeholder="e.g. Chapter / Section"
+                            className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-rose-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-neutral-400">Right Header:</span>
+                          <input
+                            type="text"
+                            value={hfHeaderRight}
+                            onChange={(e) => setHfHeaderRight(e.target.value)}
+                            placeholder="e.g. Date / Department"
+                            className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-rose-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Footer Inputs Section */}
+                    <div className="flex flex-col gap-3 rounded-xl bg-neutral-950/60 p-4 border border-neutral-800">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-neutral-200">
+                        <FileText className="h-4 w-4 text-blue-400" />
+                        <span>Footer Slots (Bottom Margin)</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-neutral-400">Left Footer:</span>
+                          <input
+                            type="text"
+                            value={hfFooterLeft}
+                            onChange={(e) => setHfFooterLeft(e.target.value)}
+                            placeholder="e.g. Confidential"
+                            className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-rose-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-neutral-400">Center Footer:</span>
+                          <input
+                            type="text"
+                            value={hfFooterCenter}
+                            onChange={(e) => setHfFooterCenter(e.target.value)}
+                            placeholder="e.g. All Rights Reserved"
+                            className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-rose-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-neutral-400">Right Footer:</span>
+                          <input
+                            type="text"
+                            value={hfFooterRight}
+                            onChange={(e) => setHfFooterRight(e.target.value)}
+                            placeholder="e.g. Author Name"
+                            className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-rose-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Page Numbers Section */}
+                    <div className="flex flex-col gap-4 rounded-xl bg-neutral-950/60 p-4 border border-neutral-800">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-neutral-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={hfIncludePageNumbers}
+                            onChange={(e) => setHfIncludePageNumbers(e.target.checked)}
+                            className="rounded accent-rose-500 h-4 w-4"
+                          />
+                          <span>Add Automatic Page Numbers</span>
+                        </label>
+                      </div>
+
+                      {hfIncludePageNumbers && (
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-neutral-800/80">
+                          <div className="space-y-1">
+                            <span className="text-[11px] text-neutral-400">Format:</span>
+                            <select
+                              value={hfPageNumberFormat}
+                              onChange={(e) => setHfPageNumberFormat(e.target.value as PageNumberFormat)}
+                              className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-rose-500"
+                            >
+                              <option value="page-n-of-total">Page 1 of {activeTab.numPages}</option>
+                              <option value="page-n">Page 1</option>
+                              <option value="number">1</option>
+                              <option value="dash-n-dash">- 1 -</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[11px] text-neutral-400">Position:</span>
+                            <select
+                              value={hfPageNumberPosition}
+                              onChange={(e) => setHfPageNumberPosition(e.target.value as PageNumberPosition)}
+                              className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-200 focus:outline-none focus:border-rose-500"
+                            >
+                              <option value="bottom-center">Bottom Center</option>
+                              <option value="bottom-right">Bottom Right</option>
+                              <option value="bottom-left">Bottom Left</option>
+                              <option value="top-right">Top Right</option>
+                              <option value="top-center">Top Center</option>
+                              <option value="top-left">Top Left</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[11px] text-neutral-400">Start Numbering At:</span>
+                            <input
+                              type="number"
+                              min={1}
+                              value={hfPageNumberStartOffset}
+                              onChange={(e) => setHfPageNumberStartOffset(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                              className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-200 font-mono focus:outline-none focus:border-rose-500"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[11px] text-neutral-400">Margin Offset (pt):</span>
+                            <input
+                              type="number"
+                              min={10}
+                              max={100}
+                              value={hfPageNumberMargin}
+                              onChange={(e) => setHfPageNumberMargin(Math.max(10, parseInt(e.target.value, 10) || 30))}
+                              className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-2.5 py-1.5 text-xs text-neutral-200 font-mono focus:outline-none focus:border-rose-500"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Styling & Target Pages */}
+                    <div className="flex flex-col gap-4 rounded-xl bg-neutral-950/60 p-4 border border-neutral-800">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-300 font-medium">Font Size:</span>
+                            <span className="font-mono text-rose-400">{hfFontSize} pt</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={8}
+                            max={20}
+                            value={hfFontSize}
+                            onChange={(e) => setHfFontSize(parseInt(e.target.value, 10))}
+                            className="w-full accent-rose-500 cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <span className="text-xs text-neutral-300 font-medium block">Color:</span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={hfColor}
+                              onChange={(e) => setHfColor(e.target.value)}
+                              className="h-7 w-8 rounded cursor-pointer bg-transparent border-0"
+                            />
+                            <div className="flex items-center gap-1">
+                              {["#4b5563", "#1f2937", "#ef4444", "#3b82f6", "#10b981", "#000000"].map((c) => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  onClick={() => setHfColor(c)}
+                                  style={{ backgroundColor: c }}
+                                  className={`h-5 w-5 rounded-full border cursor-pointer transition ${
+                                    hfColor.toLowerCase() === c.toLowerCase()
+                                      ? "border-white ring-1 ring-rose-400 scale-110"
+                                      : "border-neutral-700 hover:scale-105"
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Page Range Targeting */}
+                      <div className="space-y-2 pt-2 border-t border-neutral-800/80">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          Target Pages:
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="hfPageRange"
+                              checked={hfPageRangeMode === "all"}
+                              onChange={() => setHfPageRangeMode("all")}
+                              className="accent-rose-500"
+                            />
+                            <span>All Pages ({activeTab.numPages})</span>
+                          </label>
+                          <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="hfPageRange"
+                              checked={hfPageRangeMode === "custom"}
+                              onChange={() => setHfPageRangeMode("custom")}
+                              className="accent-rose-500"
+                            />
+                            <span>Custom Range (e.g. skip title page)</span>
+                          </label>
+                        </div>
+                        {hfPageRangeMode === "custom" && (
+                          <input
+                            type="text"
+                            value={hfCustomRange}
+                            onChange={(e) => setHfCustomRange(e.target.value)}
+                            placeholder="e.g. 2-10"
+                            className="w-full rounded-lg bg-neutral-950 border border-neutral-800 px-3 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 font-mono focus:outline-none focus:border-rose-500"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Live Visual Preview Card & Actions */}
+                  <div className="w-80 flex flex-col gap-4 flex-shrink-0">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-neutral-300">
+                      <Eye className="h-4 w-4 text-rose-400" />
+                      <span>Live Preview</span>
+                    </div>
+
+                    {/* Paper Preview Sheet */}
+                    <div className="relative w-full aspect-[1/1.35] bg-white rounded-lg shadow-xl overflow-hidden flex flex-col justify-between p-4 border border-neutral-300 select-none">
+                      {/* Top Header Preview */}
+                      <div
+                        style={{ color: hfColor, fontSize: `${Math.max(7, hfFontSize * 0.75)}px` }}
+                        className="flex items-center justify-between border-b border-neutral-200 pb-1 font-sans font-medium"
+                      >
+                        <span className="truncate max-w-[30%]">
+                          {hfPageNumberPosition === "top-left" && hfIncludePageNumbers
+                            ? `Page 1`
+                            : hfHeaderLeft}
+                        </span>
+                        <span className="truncate max-w-[40%] text-center">
+                          {hfPageNumberPosition === "top-center" && hfIncludePageNumbers
+                            ? `Page 1`
+                            : hfHeaderCenter}
+                        </span>
+                        <span className="truncate max-w-[30%] text-right">
+                          {hfPageNumberPosition === "top-right" && hfIncludePageNumbers
+                            ? `Page 1 of ${activeTab.numPages}`
+                            : hfHeaderRight}
+                        </span>
+                      </div>
+
+                      {/* Simulated text lines */}
+                      <div className="space-y-2 opacity-15 pointer-events-none my-auto">
+                        <div className="h-2.5 bg-neutral-800 rounded w-1/3 mb-4" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-5/6" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-4/6" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-3/4" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full mt-4" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-5/6" />
+                        <div className="h-1.5 bg-neutral-700 rounded w-full" />
+                      </div>
+
+                      {/* Bottom Footer Preview */}
+                      <div
+                        style={{ color: hfColor, fontSize: `${Math.max(7, hfFontSize * 0.75)}px` }}
+                        className="flex items-center justify-between border-t border-neutral-200 pt-1 font-sans font-medium"
+                      >
+                        <span className="truncate max-w-[30%]">
+                          {hfPageNumberPosition === "bottom-left" && hfIncludePageNumbers
+                            ? `Page 1`
+                            : hfFooterLeft}
+                        </span>
+                        <span className="truncate max-w-[40%] text-center">
+                          {hfPageNumberPosition === "bottom-center" && hfIncludePageNumbers
+                            ? hfPageNumberFormat === "page-n-of-total"
+                              ? `Page 1 of ${activeTab.numPages}`
+                              : hfPageNumberFormat === "page-n"
+                              ? `Page 1`
+                              : hfPageNumberFormat === "dash-n-dash"
+                              ? `- 1 -`
+                              : `1`
+                            : hfFooterCenter}
+                        </span>
+                        <span className="truncate max-w-[30%] text-right">
+                          {hfPageNumberPosition === "bottom-right" && hfIncludePageNumbers
+                            ? `Page 1 of ${activeTab.numPages}`
+                            : hfFooterRight}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex flex-col gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleApplyHeaderFooter(false)}
+                        disabled={isProcessing}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-rose-500 active:bg-rose-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        {isProcessing ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="h-4 w-4" />
+                        )}
+                        <span>Apply to Current PDF</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyHeaderFooter(true)}
+                        disabled={isProcessing}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-neutral-800 border border-neutral-700 px-4 py-2.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-700 hover:text-white active:bg-neutral-850 disabled:opacity-40 cursor-pointer"
+                      >
+                        <Save className="h-4 w-4" />
+                        <span>Save As New File...</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

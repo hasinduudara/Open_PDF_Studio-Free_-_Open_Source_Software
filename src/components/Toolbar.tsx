@@ -22,6 +22,8 @@ import {
   Check,
   Loader2,
   Layers,
+  Stamp,
+  Hash,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
@@ -275,6 +277,30 @@ export default function Toolbar() {
         >
           <Layers className="h-3.5 w-3.5 text-amber-400" />
           <span>Page Tools</span>
+        </button>
+
+        {/* Watermark Button */}
+        <button
+          type="button"
+          onClick={() => openPageTools("watermark")}
+          disabled={!activeTab}
+          className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1 font-medium text-neutral-200 transition hover:bg-neutral-700 active:bg-neutral-850 hover:text-white disabled:opacity-40 cursor-pointer"
+          title="Add Text or Image Watermark (Stamp)"
+        >
+          <Stamp className="h-3.5 w-3.5 text-purple-400" />
+          <span>Watermark</span>
+        </button>
+
+        {/* Headers, Footers & Page Numbers Button */}
+        <button
+          type="button"
+          onClick={() => openPageTools("header-footer")}
+          disabled={!activeTab}
+          className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1 font-medium text-neutral-200 transition hover:bg-neutral-700 active:bg-neutral-850 hover:text-white disabled:opacity-40 cursor-pointer"
+          title="Add Headers, Footers & Page Numbers"
+        >
+          <Hash className="h-3.5 w-3.5 text-rose-400" />
+          <span>Page Numbers</span>
         </button>
       </div>
 
