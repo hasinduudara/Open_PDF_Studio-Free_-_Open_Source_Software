@@ -5,6 +5,7 @@ import {
   type HighlightAnnotation,
   type NoteAnnotation,
   type DrawAnnotation,
+  type SignatureAnnotation,
 } from "../store/usePdfStore";
 
 interface AnnotationLayerProps {
@@ -206,6 +207,35 @@ export default function AnnotationLayer({
     const width = Math.abs(highlightCurrent.x - highlightStart.x) * pageWidth;
     const height = Math.abs(highlightCurrent.y - highlightStart.y) * pageHeight;
     liveHighlightRect = { x: minX, y: minY, width, height };
+  }
+
+  // Signature dragging interaction
+  function handleSignatureDragStart(e: React.MouseEvent, sig: SignatureAnnotation) {
+    e.stopPropagation();
+    setSelectedAnnotationId(sig.id);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initX = sig.x;
+    const initY = sig.y;
+
+    function onMouseMove(moveEvent: MouseEvent) {
+      const deltaX = (moveEvent.clientX - startX) / pageWidth;
+      const deltaY = (moveEvent.clientY - startY) / pageHeight;
+      const newX = Math.max(0, Math.min(1 - sig.width, initX + deltaX));
+      const newY = Math.max(0, Math.min(1 - sig.height, initY + deltaY));
+
+      if (activeTab) {
+        updateAnnotation(activeTab.id, sig.id, { x: newX, y: newY });
+      }
+    }
+
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
   }
 
   // Determine cursor based on active tool
@@ -496,6 +526,80 @@ export default function AnnotationLayer({
                     rows={3}
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-lg p-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-amber-400/80 resize-none select-text cursor-text pointer-events-auto"
                   />
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+      {/* Render Signatures */}
+      {pageAnnotations
+        .filter((ann): ann is SignatureAnnotation => ann.type === "signature")
+        .map((sig) => {
+          const isSelected = selectedAnnotationId === sig.id;
+          const left = sig.x * pageWidth;
+          const top = sig.y * pageHeight;
+          const width = sig.width * pageWidth;
+          const height = sig.height * pageHeight;
+
+          return (
+            <div
+              key={sig.id}
+              className={`absolute pointer-events-auto cursor-move select-none ${
+                isSelected
+                  ? "ring-2 ring-blue-500 rounded bg-blue-500/10"
+                  : "hover:ring-1 hover:ring-blue-400/50 rounded"
+              }`}
+              style={{
+                left: `${left}px`,
+                top: `${top}px`,
+                width: `${width}px`,
+                height: `${height}px`,
+              }}
+              onMouseDown={(e) => handleSignatureDragStart(e, sig)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedAnnotationId(sig.id);
+              }}
+            >
+              <img
+                src={sig.imageDataUrl}
+                alt="Signature"
+                className="w-full h-full object-contain pointer-events-none"
+                draggable={false}
+              />
+
+              {/* Action buttons on select */}
+              {isSelected && (
+                <div
+                  className="absolute -top-7 right-0 flex items-center gap-1 bg-neutral-900 border border-neutral-700 rounded px-1.5 py-0.5 shadow-lg"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (activeTab) {
+                        deleteAnnotation(activeTab.id, sig.id);
+                        setSelectedAnnotationId(null);
+                      }
+                    }}
+                    className="text-red-400 hover:text-red-300 p-0.5 rounded cursor-pointer"
+                    title="Delete Signature"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedAnnotationId(null);
+                    }}
+                    className="text-neutral-400 hover:text-white p-0.5 rounded cursor-pointer"
+                    title="Deselect"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
               )}
             </div>

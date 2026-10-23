@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type * as pdfjsLib from "pdfjs-dist";
 
-export type AnnotationTool = "select" | "highlight" | "note" | "draw";
+export type AnnotationTool = "select" | "highlight" | "note" | "draw" | "signature";
 
 export interface HighlightAnnotation {
   id: string;
@@ -33,7 +33,22 @@ export interface DrawAnnotation {
   points: { x: number; y: number }[];
 }
 
-export type PdfAnnotation = HighlightAnnotation | NoteAnnotation | DrawAnnotation;
+export interface SignatureAnnotation {
+  id: string;
+  page: number;
+  type: "signature";
+  imageDataUrl: string;
+  x: number; // 0 to 1
+  y: number; // 0 to 1
+  width: number; // 0 to 1
+  height: number; // 0 to 1
+}
+
+export type PdfAnnotation =
+  | HighlightAnnotation
+  | NoteAnnotation
+  | DrawAnnotation
+  | SignatureAnnotation;
 
 /**
  * Represents an open PDF document tab in the application.
@@ -91,7 +106,8 @@ export type PageToolsTab =
   | "split"
   | "watermark"
   | "header-footer"
-  | "convert";
+  | "convert"
+  | "security";
 
 /**
  * Zustand state and actions for managing multi-tab PDF documents, search,
@@ -177,6 +193,11 @@ export interface PdfState {
   openPageTools: (initialTab?: PageToolsTab) => void;
   closePageTools: () => void;
   updateTabData: (tabId: string, newData: Uint8Array) => void;
+
+  // Signature modal state
+  isSignatureModalOpen: boolean;
+  openSignatureModal: () => void;
+  closeSignatureModal: () => void;
 }
 
 export const usePdfStore = create<PdfState>((set, get) => ({
@@ -529,5 +550,14 @@ export const usePdfStore = create<PdfState>((set, get) => ({
         };
       }),
     }));
+  },
+
+  // Signature modal actions
+  isSignatureModalOpen: false,
+  openSignatureModal: () => {
+    set({ isSignatureModalOpen: true });
+  },
+  closeSignatureModal: () => {
+    set({ isSignatureModalOpen: false });
   },
 }));

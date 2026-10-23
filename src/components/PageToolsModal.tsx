@@ -30,11 +30,15 @@ import {
   Type,
   FileText,
   Eye,
+  EyeOff,
   FileArchive,
   FileDown,
   Minimize2,
   Plus,
   Sparkles,
+  Shield,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
@@ -62,6 +66,7 @@ import {
   compressPdf,
   type CompressionQuality,
 } from "../utils/pdfConversionTools";
+import { protectPdf, removePassword } from "../utils/pdfSecurityTools";
 
 interface PageCardItem {
   id: string;
@@ -1012,6 +1017,122 @@ export default function PageToolsModal() {
     }
   }
 
+  // ==========================================
+  // TAB 7: SECURITY & PASSWORD PROTECTION STATE
+  // ==========================================
+  const [encryptPassword, setEncryptPassword] = useState<string>("");
+  const [encryptConfirmPassword, setEncryptConfirmPassword] = useState<string>("");
+  const [showEncryptPassword, setShowEncryptPassword] = useState<boolean>(false);
+  const [allowPrinting, setAllowPrinting] = useState<boolean>(true);
+  const [allowCopying, setAllowCopying] = useState<boolean>(true);
+  const [allowModifying, setAllowModifying] = useState<boolean>(false);
+
+  const [decryptPassword, setDecryptPassword] = useState<string>("");
+  const [showDecryptPassword, setShowDecryptPassword] = useState<boolean>(false);
+
+  /**
+   * Applies password encryption to active PDF and saves to disk.
+   */
+  async function handleEncryptAndSave() {
+    if (!activeTab) return;
+    if (!encryptPassword) {
+      setErrorMessage("Please enter a password to protect the document.");
+      return;
+    }
+    if (encryptPassword !== encryptConfirmPassword) {
+      setErrorMessage("Passwords do not match. Please verify both password fields.");
+      return;
+    }
+
+    setIsProcessing(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      const defaultName = activeTab.name.replace(/\.pdf$/i, "") + "_protected.pdf";
+      const savePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+      });
+
+      if (!savePath) {
+        setIsProcessing(false);
+        return;
+      }
+
+      const protectedBytes = await protectPdf(activeTab.data, encryptPassword, {
+        allowPrinting,
+        allowCopying,
+        allowModifying,
+      });
+
+      await writeFile(savePath, protectedBytes);
+
+      const fileName = savePath.split(/[/\\]/).pop() || defaultName;
+      addTab({
+        name: fileName,
+        path: savePath,
+        data: protectedBytes,
+      });
+
+      setStatusMessage(`Successfully encrypted and saved "${fileName}" with password protection!`);
+      setEncryptPassword("");
+      setEncryptConfirmPassword("");
+    } catch (err: any) {
+      console.error("Failed to encrypt PDF:", err);
+      setErrorMessage(`Encryption failed: ${err?.message || err}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  /**
+   * Removes password from active PDF using the provided password and saves unprotected PDF.
+   */
+  async function handleRemovePasswordAndSave() {
+    if (!activeTab) return;
+    if (!decryptPassword) {
+      setErrorMessage("Please enter the current document password to remove it.");
+      return;
+    }
+
+    setIsProcessing(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      const defaultName = activeTab.name.replace(/\.pdf$/i, "") + "_unlocked.pdf";
+      const savePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+      });
+
+      if (!savePath) {
+        setIsProcessing(false);
+        return;
+      }
+
+      const decryptedBytes = await removePassword(activeTab.data, decryptPassword);
+
+      await writeFile(savePath, decryptedBytes);
+
+      const fileName = savePath.split(/[/\\]/).pop() || defaultName;
+      addTab({
+        name: fileName,
+        path: savePath,
+        data: decryptedBytes,
+      });
+
+      setStatusMessage(`Successfully removed password! Unlocked PDF saved as "${fileName}".`);
+      setDecryptPassword("");
+    } catch (err: any) {
+      console.error("Failed to remove password:", err);
+      setErrorMessage(`Failed to remove password: ${err?.message || "Invalid password or unsupported encryption."}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
   if (!isPageToolsOpen) {
     return null;
   }
@@ -1140,6 +1261,23 @@ export default function PageToolsModal() {
             >
               <FileArchive className="h-3.5 w-3.5 text-cyan-400" />
               <span>Convert & Compress</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentTab("security");
+                setErrorMessage(null);
+                setStatusMessage(null);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                currentTab === "security"
+                  ? "bg-neutral-800 text-white shadow-xs"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              <Shield className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Security</span>
             </button>
           </div>
 
@@ -2945,6 +3083,209 @@ export default function PageToolsModal() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================== */}
+          {/* TAB 7: SECURITY & PASSWORD PROTECTION      */}
+          {/* ========================================== */}
+          {currentTab === "security" && (
+            <div className="flex-1 flex flex-col justify-between overflow-y-auto p-6">
+              {!activeTab ? (
+                <div className="flex flex-1 flex-col items-center justify-center text-center p-8 my-auto">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-neutral-400 ring-1 ring-neutral-700">
+                    <Shield className="h-7 w-7 text-emerald-400" />
+                  </div>
+                  <h3 className="text-base font-semibold text-neutral-200">
+                    No active PDF document
+                  </h3>
+                  <p className="mt-1 text-xs text-neutral-400 max-w-sm">
+                    Open a PDF document first to encrypt it with a password or remove existing protection.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col gap-6 max-w-4xl mx-auto w-full justify-center">
+                  <div className="text-center space-y-1">
+                    <h3 className="text-base font-semibold text-neutral-100 flex items-center justify-center gap-2">
+                      <Shield className="h-5 w-5 text-emerald-400" />
+                      <span>PDF Security & Password Protection</span>
+                    </h3>
+                    <p className="text-xs text-neutral-400 max-w-lg mx-auto">
+                      Apply bank-grade AES-256 encryption to protect sensitive data or permanently remove password restrictions from unlocked documents.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Encrypt PDF Card */}
+                    <div className="flex flex-col justify-between rounded-2xl border border-neutral-800 bg-neutral-950/60 p-6 space-y-5">
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20">
+                            <Lock className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-semibold text-neutral-100">
+                              Encrypt & Protect PDF
+                            </h4>
+                            <p className="text-[11px] text-neutral-400">
+                              Require a password to open this document
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Password Inputs */}
+                        <div className="space-y-3 pt-1">
+                          <div>
+                            <label className="block text-[11px] font-medium text-neutral-400 mb-1">
+                              New Password
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showEncryptPassword ? "text" : "password"}
+                                value={encryptPassword}
+                                onChange={(e) => setEncryptPassword(e.target.value)}
+                                placeholder="Enter strong password..."
+                                className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 pr-9 text-xs text-neutral-100 placeholder-neutral-500 outline-none focus:border-emerald-500 transition-colors"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowEncryptPassword(!showEncryptPassword)}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-200 cursor-pointer"
+                                title={showEncryptPassword ? "Hide password" : "Show password"}
+                              >
+                                {showEncryptPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-neutral-400 mb-1">
+                              Confirm Password
+                            </label>
+                            <input
+                              type={showEncryptPassword ? "text" : "password"}
+                              value={encryptConfirmPassword}
+                              onChange={(e) => setEncryptConfirmPassword(e.target.value)}
+                              placeholder="Re-enter password..."
+                              className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 outline-none focus:border-emerald-500 transition-colors"
+                            />
+                          </div>
+
+                          {/* Permissions */}
+                          <div className="space-y-2 pt-2 border-t border-neutral-800/80">
+                            <span className="block text-[11px] font-medium text-neutral-400">
+                              Document Permissions
+                            </span>
+                            <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={allowPrinting}
+                                onChange={(e) => setAllowPrinting(e.target.checked)}
+                                className="rounded border-neutral-700 bg-neutral-900 text-emerald-600 focus:ring-0"
+                              />
+                              <span>Allow high-resolution printing</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={allowCopying}
+                                onChange={(e) => setAllowCopying(e.target.checked)}
+                                className="rounded border-neutral-700 bg-neutral-900 text-emerald-600 focus:ring-0"
+                              />
+                              <span>Allow copying text and content</span>
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={allowModifying}
+                                onChange={(e) => setAllowModifying(e.target.checked)}
+                                className="rounded border-neutral-700 bg-neutral-900 text-emerald-600 focus:ring-0"
+                              />
+                              <span>Allow modifying annotations & forms</span>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleEncryptAndSave}
+                        disabled={!encryptPassword || !encryptConfirmPassword || isProcessing}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-40 cursor-pointer mt-4"
+                      >
+                        {isProcessing ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Lock className="h-4 w-4" />
+                        )}
+                        <span>Encrypt & Save PDF</span>
+                      </button>
+                    </div>
+
+                    {/* Remove Password Card */}
+                    <div className="flex flex-col justify-between rounded-2xl border border-neutral-800 bg-neutral-950/60 p-6 space-y-5">
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20">
+                            <Unlock className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-semibold text-neutral-100">
+                              Remove Password
+                            </h4>
+                            <p className="text-[11px] text-neutral-400">
+                              Decrypt and permanently unlock this document
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 pt-1">
+                          <p className="text-xs text-neutral-400 leading-relaxed">
+                            If this PDF currently has a password, enter the password below to decrypt it and save a clean copy that opens without prompting.
+                          </p>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-neutral-400 mb-1">
+                              Current Password
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showDecryptPassword ? "text" : "password"}
+                                value={decryptPassword}
+                                onChange={(e) => setDecryptPassword(e.target.value)}
+                                placeholder="Enter current document password..."
+                                className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 pr-9 text-xs text-neutral-100 placeholder-neutral-500 outline-none focus:border-amber-500 transition-colors"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowDecryptPassword(!showDecryptPassword)}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-200 cursor-pointer"
+                                title={showDecryptPassword ? "Hide password" : "Show password"}
+                              >
+                                {showDecryptPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleRemovePasswordAndSave}
+                        disabled={!decryptPassword || isProcessing}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-amber-500 active:bg-amber-700 disabled:opacity-40 cursor-pointer mt-4"
+                      >
+                        {isProcessing ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Unlock className="h-4 w-4" />
+                        )}
+                        <span>Remove Password & Save</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

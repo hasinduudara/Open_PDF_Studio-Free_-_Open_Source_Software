@@ -25,6 +25,8 @@ import {
   Stamp,
   Hash,
   FileArchive,
+  Shield,
+  FileSignature,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
@@ -57,6 +59,7 @@ export default function Toolbar() {
     setActiveColor,
     undoLastAnnotation,
     openPageTools,
+    openSignatureModal,
   } = usePdfStore();
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -314,6 +317,17 @@ export default function Toolbar() {
           <FileArchive className="h-3.5 w-3.5 text-cyan-400" />
           <span>Convert</span>
         </button>
+
+        {/* Security / Password Protect Button */}
+        <button
+          type="button"
+          onClick={() => openPageTools("security")}
+          className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1 font-medium text-neutral-200 transition hover:bg-neutral-700 active:bg-neutral-850 hover:text-white cursor-pointer"
+          title="Password Protect & Remove Password (Security)"
+        >
+          <Shield className="h-3.5 w-3.5 text-emerald-400" />
+          <span>Security</span>
+        </button>
       </div>
 
       {/* Navigation Controls (Page switcher) */}
@@ -419,6 +433,17 @@ export default function Toolbar() {
           title="Freehand Pen (P)"
         >
           <Pen className="h-3.5 w-3.5" />
+        </button>
+
+        {/* E-Signature Tool */}
+        <button
+          type="button"
+          onClick={openSignatureModal}
+          disabled={!activeTab}
+          className="rounded p-1.5 transition-colors cursor-pointer text-neutral-400 hover:bg-neutral-800/60 hover:text-indigo-400 disabled:opacity-40"
+          title="Sign Document (Draw or Upload Signature)"
+        >
+          <FileSignature className="h-3.5 w-3.5" />
         </button>
 
         <div className="h-3.5 w-[1px] bg-neutral-800 mx-0.5" />

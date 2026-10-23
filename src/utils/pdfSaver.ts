@@ -55,7 +55,7 @@ export async function saveAnnotatedPdf(tab: PdfTab): Promise<string | null> {
 
       const page = pages[pageIndex];
       const { width: pageWidth, height: pageHeight } = page.getSize();
-      const color = hexToRgb(ann.color || "#facc15");
+      const color = hexToRgb(("color" in ann && ann.color) || "#facc15");
 
       if (ann.type === "highlight") {
         // Convert normalized (0..1) coordinates to PDF page coordinates.
@@ -150,6 +150,39 @@ export async function saveAnnotatedPdf(tab: PdfTab): Promise<string | null> {
             font: helveticaFont,
             color: rgb(0.15, 0.15, 0.15),
           });
+        }
+      } else if (ann.type === "signature") {
+        if (!ann.imageDataUrl) continue;
+        try {
+          const base64Data = ann.imageDataUrl.includes(",")
+            ? ann.imageDataUrl.split(",")[1]
+            : ann.imageDataUrl;
+          const binaryString = atob(base64Data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+
+          let embeddedImg;
+          if (ann.imageDataUrl.includes("image/jpeg") || ann.imageDataUrl.includes("image/jpg")) {
+            embeddedImg = await pdfDoc.embedJpg(bytes);
+          } else {
+            embeddedImg = await pdfDoc.embedPng(bytes);
+          }
+
+          const x = ann.x * pageWidth;
+          const width = ann.width * pageWidth;
+          const height = ann.height * pageHeight;
+          const y = (1 - ann.y - ann.height) * pageHeight;
+
+          page.drawImage(embeddedImg, {
+            x,
+            y,
+            width,
+            height,
+          });
+        } catch (imgErr) {
+          console.error("Failed to embed signature into PDF:", imgErr);
         }
       }
     }

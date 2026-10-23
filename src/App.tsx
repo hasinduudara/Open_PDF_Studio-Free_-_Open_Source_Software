@@ -21,6 +21,7 @@ import TabBar from "./components/TabBar";
 import Sidebar from "./components/Sidebar";
 import PdfViewer from "./components/PdfViewer";
 import PageToolsModal from "./components/PageToolsModal";
+import SignatureModal from "./components/SignatureModal";
 import "./App.css";
 
 /**
@@ -519,6 +520,9 @@ export default function App() {
 
       {/* Page & File Tools Modal */}
       <PageToolsModal />
+
+      {/* E-Signature Drawing & Upload Modal */}
+      <SignatureModal />
     </div>
   );
 }
