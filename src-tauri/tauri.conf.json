@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -36,7 +37,13 @@
   },
   "plugins": {
     "updater": {
-      "requireSignedVersion": true
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE3NjlBQTEwRTI2RjNGRTgKUldUb1AyL2lFS3BwRjhoVTNKNjZsN0RjOHRxd1lmZDdocmV4QjVvN0Fjcjdpc0dTM1hBeHVsWGoK",
+      "endpoints": [
+        "https://github.com/hasinduudara/Open_PDF_Studio-Free_-_Open_Source_Software/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

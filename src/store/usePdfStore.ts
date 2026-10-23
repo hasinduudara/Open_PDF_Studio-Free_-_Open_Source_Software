@@ -198,6 +198,33 @@ export interface PdfState {
   isSignatureModalOpen: boolean;
   openSignatureModal: () => void;
   closeSignatureModal: () => void;
+
+  // Auto-updater state
+  isUpdateModalOpen: boolean;
+  updateInfo: UpdateInfo | null;
+  isCheckingUpdate: boolean;
+  updateCheckManual: boolean;
+  isUpToDate: boolean;
+  updateError: string | null;
+  downloadProgress: number | null;
+  isDownloading: boolean;
+  updateStatusText: string | null;
+
+  openUpdateModal: () => void;
+  closeUpdateModal: () => void;
+  setCheckingUpdate: (checking: boolean, manual?: boolean) => void;
+  setUpdateAvailable: (info: UpdateInfo) => void;
+  setUpToDate: () => void;
+  setUpdateError: (err: string | null) => void;
+  setDownloadProgress: (progress: number | null, statusText?: string | null) => void;
+  setIsDownloading: (downloading: boolean) => void;
+}
+
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  body?: string;
+  date?: string;
 }
 
 export const usePdfStore = create<PdfState>((set, get) => ({
@@ -559,5 +586,75 @@ export const usePdfStore = create<PdfState>((set, get) => ({
   },
   closeSignatureModal: () => {
     set({ isSignatureModalOpen: false });
+  },
+
+  // Auto-updater state & actions
+  isUpdateModalOpen: false,
+  updateInfo: null,
+  isCheckingUpdate: false,
+  updateCheckManual: false,
+  isUpToDate: false,
+  updateError: null,
+  downloadProgress: null,
+  isDownloading: false,
+  updateStatusText: null,
+
+  openUpdateModal: () => {
+    set({ isUpdateModalOpen: true });
+  },
+  closeUpdateModal: () => {
+    set({
+      isUpdateModalOpen: false,
+      updateError: null,
+      isUpToDate: false,
+      isCheckingUpdate: false,
+      isDownloading: false,
+    });
+  },
+  setCheckingUpdate: (checking, manual = false) => {
+    set({
+      isCheckingUpdate: checking,
+      updateCheckManual: manual,
+      ...(checking && manual
+        ? {
+            isUpdateModalOpen: true,
+            updateError: null,
+            isUpToDate: false,
+            updateInfo: null,
+          }
+        : {}),
+    });
+  },
+  setUpdateAvailable: (info) => {
+    set({
+      isUpdateModalOpen: true,
+      updateInfo: info,
+      isCheckingUpdate: false,
+      isUpToDate: false,
+      updateError: null,
+    });
+  },
+  setUpToDate: () => {
+    set({
+      isUpdateModalOpen: true,
+      isUpToDate: true,
+      isCheckingUpdate: false,
+      updateInfo: null,
+      updateError: null,
+    });
+  },
+  setUpdateError: (err) => {
+    set({
+      isUpdateModalOpen: true,
+      updateError: err,
+      isCheckingUpdate: false,
+      isUpToDate: false,
+    });
+  },
+  setDownloadProgress: (progress, statusText = null) => {
+    set({ downloadProgress: progress, updateStatusText: statusText });
+  },
+  setIsDownloading: (downloading) => {
+    set({ isDownloading: downloading });
   },
 }));

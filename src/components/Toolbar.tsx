@@ -27,11 +27,13 @@ import {
   FileArchive,
   Shield,
   FileSignature,
+  RefreshCw,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { usePdfStore } from "../store/usePdfStore";
 import { saveAnnotatedPdf } from "../utils/pdfSaver";
+import { checkForAppUpdates } from "../utils/updateManager";
 
 /**
  * Top application toolbar providing sidebar toggle, file opening, saving,
@@ -60,6 +62,7 @@ export default function Toolbar() {
     undoLastAnnotation,
     openPageTools,
     openSignatureModal,
+    isCheckingUpdate,
   } = usePdfStore();
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -636,6 +639,19 @@ export default function Toolbar() {
           title="Reset Zoom to Default"
         >
           <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+
+        <div className="h-4 w-[1px] bg-neutral-800 mx-0.5" />
+
+        {/* Check for Updates Button */}
+        <button
+          type="button"
+          onClick={() => checkForAppUpdates(true)}
+          disabled={isCheckingUpdate}
+          className="rounded p-1.5 text-neutral-400 transition hover:bg-neutral-800 hover:text-white disabled:opacity-40 cursor-pointer"
+          title="Check for Updates"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isCheckingUpdate ? "animate-spin text-amber-400" : ""}`} />
         </button>
       </div>
     </div>

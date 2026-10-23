@@ -10,18 +10,21 @@ import {
   Trash2,
   X,
   FileArchive,
+  RefreshCw,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { usePdfStore, type RecentFile } from "./store/usePdfStore";
 import { saveAnnotatedPdf } from "./utils/pdfSaver";
+import { checkForAppUpdates } from "./utils/updateManager";
 import Toolbar from "./components/Toolbar";
 import TabBar from "./components/TabBar";
 import Sidebar from "./components/Sidebar";
 import PdfViewer from "./components/PdfViewer";
 import PageToolsModal from "./components/PageToolsModal";
 import SignatureModal from "./components/SignatureModal";
+import UpdateModal from "./components/UpdateModal";
 import "./App.css";
 
 /**
@@ -203,6 +206,17 @@ export default function App() {
     };
   }, [activeTabId, tabs, setScale, closeTab, openSearch, undoLastAnnotation, setActiveTool]);
 
+  // Check for updates silently in the background 3-5 seconds after launch
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      checkForAppUpdates(false);
+    }, 4000);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, []);
+
   // Set up Tauri native window drag-and-drop listener
   useEffect(() => {
     let isSubscribed = true;
@@ -344,6 +358,15 @@ export default function App() {
 
             {/* Header Actions */}
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => checkForAppUpdates(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-700 hover:text-white active:bg-neutral-800 cursor-pointer"
+                title="Check for software updates"
+              >
+                <RefreshCw className="h-3.5 w-3.5 text-amber-400" />
+                <span>Check Updates</span>
+              </button>
               <button
                 type="button"
                 onClick={() => openPageTools("convert")}
@@ -523,6 +546,9 @@ export default function App() {
 
       {/* E-Signature Drawing & Upload Modal */}
       <SignatureModal />
+
+      {/* Auto-Updater Modal */}
+      <UpdateModal />
     </div>
   );
 }
