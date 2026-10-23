@@ -32,3 +32,6 @@ src-tauri/target
 *.db
 *.sqlite
 *.sqlite3
+
+~
+~/.tauri
