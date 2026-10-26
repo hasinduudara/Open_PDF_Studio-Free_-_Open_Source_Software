@@ -15,6 +15,9 @@ import {
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { usePdfStore, type RecentFile } from "./store/usePdfStore";
 import { saveAnnotatedPdf } from "./utils/pdfSaver";
 import { checkForAppUpdates } from "./utils/updateManager";
@@ -64,6 +67,39 @@ export default function App() {
   } = usePdfStore();
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const [appVersion, setAppVersion] = useState<string>("");
+
+  /**
+   * Reads a PDF file path from disk and opens it in an active tab.
+   * If the file is already open, focuses its tab.
+   */
+  async function openPdfFromPath(filePath: string) {
+    if (!filePath) return;
+    const cleanPath = filePath.replace(/^["']|["']$/g, "").trim();
+    if (!cleanPath.toLowerCase().endsWith(".pdf")) return;
+
+    // If file is already open in a tab, switch to that tab
+    const existingTab = usePdfStore
+      .getState()
+      .tabs.find((t) => t.path.toLowerCase() === cleanPath.toLowerCase());
+    if (existingTab) {
+      usePdfStore.setState({ activeTabId: existingTab.id });
+      return;
+    }
+
+    try {
+      const fileName = cleanPath.split(/[/\\]/).pop() || "Document.pdf";
+      const fileData = await readFile(cleanPath);
+
+      addTab({
+        name: fileName,
+        path: cleanPath,
+        data: fileData,
+      });
+    } catch (err) {
+      console.error(`Failed to open PDF from path ${cleanPath}:`, err);
+    }
+  }
 
   /**
    * Prompts user to select and open a PDF document from disk.
@@ -80,14 +116,7 @@ export default function App() {
       const filePath = typeof selected === "string" ? selected : selected[0];
       if (!filePath) return;
 
-      const fileName = filePath.split(/[/\\]/).pop() || "Document.pdf";
-      const fileData = await readFile(filePath);
-
-      addTab({
-        name: fileName,
-        path: filePath,
-        data: fileData,
-      });
+      await openPdfFromPath(filePath);
     } catch (error) {
       console.error("Failed to open PDF file:", error);
     }
@@ -97,17 +126,7 @@ export default function App() {
    * Opens a file directly from the recent files list.
    */
   async function handleOpenRecent(file: RecentFile) {
-    try {
-      const fileData = await readFile(file.path);
-      addTab({
-        name: file.name,
-        path: file.path,
-        data: fileData,
-      });
-    } catch (error) {
-      console.error(`Failed to open recent file ${file.path}:`, error);
-      removeRecentFile(file.path);
-    }
+    await openPdfFromPath(file.path);
   }
 
   // Register Global Keyboard Shortcuts (Ctrl+O, Ctrl+F, Ctrl+W, Zoom)
@@ -214,6 +233,82 @@ export default function App() {
 
     return () => {
       clearTimeout(timer);
+    };
+  }, []);
+
+  // Fetch actual application version dynamically from Tauri
+  useEffect(() => {
+    let isSubscribed = true;
+
+    async function fetchAppVersion() {
+      try {
+        const ver = await getVersion();
+        if (isSubscribed && ver) {
+          setAppVersion(ver);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch application version:", err);
+      }
+    }
+
+    fetchAppVersion();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, []);
+
+  // Read launch arguments on startup and listen for OS file association open events
+  useEffect(() => {
+    let isSubscribed = true;
+
+    async function handleLaunchArguments() {
+      try {
+        const args = await invoke<string[]>("get_launch_args");
+        if (!isSubscribed || !Array.isArray(args)) return;
+
+        // Skip executable binary at args[0] and inspect remaining args for .pdf files
+        for (let i = 1; i < args.length; i++) {
+          const arg = args[i].replace(/^["']|["']$/g, "").trim();
+          if (arg.toLowerCase().endsWith(".pdf")) {
+            await openPdfFromPath(arg);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to read startup launch arguments:", err);
+      }
+    }
+
+    handleLaunchArguments();
+
+    // Listen for single-instance launch events when double-clicking a PDF while app is already running
+    let unlistenFn: (() => void) | undefined;
+    async function initSingleInstanceListener() {
+      try {
+        unlistenFn = await listen<{ args: string[]; cwd: string }>(
+          "single-instance",
+          async (event) => {
+            const args = event.payload?.args || [];
+            for (let i = 1; i < args.length; i++) {
+              const arg = args[i].replace(/^["']|["']$/g, "").trim();
+              if (arg.toLowerCase().endsWith(".pdf")) {
+                await openPdfFromPath(arg);
+              }
+            }
+          }
+        );
+      } catch (err) {
+        console.warn("Failed to register single-instance listener:", err);
+      }
+    }
+
+    initSingleInstanceListener();
+
+    return () => {
+      isSubscribed = false;
+      if (unlistenFn) {
+        unlistenFn();
+      }
     };
   }, []);
 
@@ -350,9 +445,11 @@ export default function App() {
                 <h1 className="text-sm font-semibold tracking-tight text-neutral-100">
                   Open PDF Studio
                 </h1>
-                <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">
-                  v0.1.0
-                </span>
+                {appVersion && (
+                  <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">
+                    v{appVersion}
+                  </span>
+                )}
               </div>
             </div>
 
