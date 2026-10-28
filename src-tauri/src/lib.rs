@@ -6,9 +6,8 @@ struct SingleInstancePayload {
     cwd: String,
 }
 
-// Command returning startup command-line arguments passed to the executable
 #[tauri::command]
-fn get_launch_args() -> Vec<String> {
+fn get_cli_args() -> Vec<String> {
     std::env::args().collect()
 }
 
@@ -38,7 +37,7 @@ pub fn run() {
     }));
 
     builder
-        .invoke_handler(tauri::generate_handler![greet, get_launch_args])
+        .invoke_handler(tauri::generate_handler![greet, get_cli_args])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let icon = tauri::include_image!("icons/icon.ico");

@@ -264,14 +264,25 @@ export default function App() {
 
     async function handleLaunchArguments() {
       try {
-        const args = await invoke<string[]>("get_launch_args");
+        const args = await invoke<string[]>("get_cli_args");
         if (!isSubscribed || !Array.isArray(args)) return;
 
-        // Skip executable binary at args[0] and inspect remaining args for .pdf files
-        for (let i = 1; i < args.length; i++) {
-          const arg = args[i].replace(/^["']|["']$/g, "").trim();
-          if (arg.toLowerCase().endsWith(".pdf")) {
-            await openPdfFromPath(arg);
+        // Find the first argument that ends with .pdf (case-insensitive)
+        const pdfArg = args.find((arg) => {
+          const clean = arg.replace(/^["']|["']$/g, "").trim();
+          return clean.toLowerCase().endsWith(".pdf");
+        });
+
+        if (pdfArg) {
+          const cleanPath = pdfArg.replace(/^["']|["']$/g, "").trim();
+          const fileName = cleanPath.split(/[/\\]/).pop() || "Document.pdf";
+          const fileData = await readFile(cleanPath);
+          if (isSubscribed) {
+            addTab({
+              name: fileName,
+              path: cleanPath,
+              data: fileData,
+            });
           }
         }
       } catch (err) {
@@ -289,11 +300,19 @@ export default function App() {
           "single-instance",
           async (event) => {
             const args = event.payload?.args || [];
-            for (let i = 1; i < args.length; i++) {
-              const arg = args[i].replace(/^["']|["']$/g, "").trim();
-              if (arg.toLowerCase().endsWith(".pdf")) {
-                await openPdfFromPath(arg);
-              }
+            const pdfArg = args.find((arg) => {
+              const clean = arg.replace(/^["']|["']$/g, "").trim();
+              return clean.toLowerCase().endsWith(".pdf");
+            });
+            if (pdfArg) {
+              const cleanPath = pdfArg.replace(/^["']|["']$/g, "").trim();
+              const fileName = cleanPath.split(/[/\\]/).pop() || "Document.pdf";
+              const fileData = await readFile(cleanPath);
+              addTab({
+                name: fileName,
+                path: cleanPath,
+                data: fileData,
+              });
             }
           }
         );
@@ -310,7 +329,7 @@ export default function App() {
         unlistenFn();
       }
     };
-  }, []);
+  }, [addTab]);
 
   // Set up Tauri native window drag-and-drop listener
   useEffect(() => {
@@ -445,11 +464,9 @@ export default function App() {
                 <h1 className="text-sm font-semibold tracking-tight text-neutral-100">
                   Open PDF Studio
                 </h1>
-                {appVersion && (
-                  <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">
-                    v{appVersion}
-                  </span>
-                )}
+                <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">
+                  {appVersion ? `v${appVersion}` : "v..."}
+                </span>
               </div>
             </div>
 

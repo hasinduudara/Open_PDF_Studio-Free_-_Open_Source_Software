@@ -38,9 +38,8 @@
       {
         "ext": ["pdf"],
         "name": "PDF Document",
-        "description": "Portable Document Format",
-        "mimeType": "application/pdf",
-        "role": "Viewer"
+        "description": "PDF Document",
+        "role": "Editor"
       }
     ]
   },
