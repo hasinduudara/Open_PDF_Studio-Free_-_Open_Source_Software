@@ -73,6 +73,7 @@ import {
   extractTextFromImage,
   renderPdfPageToDataUrl,
   type OcrLanguage,
+  PSM,
 } from "../utils/ocrTools";
 
 interface PageCardItem {
@@ -1145,6 +1146,7 @@ export default function PageToolsModal() {
   // ==========================================
   const [ocrSelectedPage, setOcrSelectedPage] = useState<number>(1);
   const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>("eng");
+  const [ocrPsm, setOcrPsm] = useState<PSM>(PSM.AUTO);
   const [ocrResultText, setOcrResultText] = useState<string>("");
   const [isOcrRunning, setIsOcrRunning] = useState<boolean>(false);
   const [ocrStatus, setOcrStatus] = useState<string>("");
@@ -1168,7 +1170,7 @@ export default function PageToolsModal() {
     }
 
     setIsOcrRunning(true);
-    setOcrStatus("Rendering page to image...");
+    setOcrStatus("Rendering page to high-resolution image (scale 4.0)...");
     setOcrProgress(15);
     setErrorMessage(null);
     setStatusMessage(null);
@@ -1177,7 +1179,7 @@ export default function PageToolsModal() {
       const dataUrl = await renderPdfPageToDataUrl(
         pdfDoc || activeTab.data,
         ocrSelectedPage,
-        3.5
+        4.0
       );
 
       setOcrStatus("Initializing Tesseract OCR worker...");
@@ -1193,7 +1195,8 @@ export default function PageToolsModal() {
           } else {
             setOcrStatus(`${info.status}...`);
           }
-        }
+        },
+        ocrPsm
       );
 
       setOcrResultText(recognized);
@@ -3559,6 +3562,57 @@ export default function PageToolsModal() {
                             </button>
                           ))}
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Page Segmentation Mode (PSM) */}
+                    <div className="space-y-2 border-t border-neutral-800/80 pt-4">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-medium text-neutral-300">
+                          Page Segmentation Mode (Layout Analysis)
+                        </label>
+                        <span className="text-[11px] text-neutral-400">
+                          {ocrPsm === PSM.AUTO ? "PSM 3 (Auto Page Layout)" : "PSM 6 (Single Text Block)"}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setOcrPsm(PSM.AUTO)}
+                          disabled={isOcrRunning}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                            ocrPsm === PSM.AUTO
+                              ? "border-indigo-500 bg-indigo-500/10 text-white shadow-xs"
+                              : "border-neutral-800 bg-neutral-950/70 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                          }`}
+                        >
+                          <div className={`mt-0.5 h-2 w-2 rounded-full ${ocrPsm === PSM.AUTO ? "bg-indigo-400" : "bg-neutral-600"}`} />
+                          <div>
+                            <span className="block text-xs font-semibold">Automatic Layout (PSM 3)</span>
+                            <span className="block text-[10px] opacity-75 mt-0.5">
+                              Recommended for multi-column pages and mixed layout documents
+                            </span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setOcrPsm(PSM.SINGLE_BLOCK)}
+                          disabled={isOcrRunning}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                            ocrPsm === PSM.SINGLE_BLOCK
+                              ? "border-indigo-500 bg-indigo-500/10 text-white shadow-xs"
+                              : "border-neutral-800 bg-neutral-950/70 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                          }`}
+                        >
+                          <div className={`mt-0.5 h-2 w-2 rounded-full ${ocrPsm === PSM.SINGLE_BLOCK ? "bg-indigo-400" : "bg-neutral-600"}`} />
+                          <div>
+                            <span className="block text-xs font-semibold">Single Text Block (PSM 6)</span>
+                            <span className="block text-[10px] opacity-75 mt-0.5">
+                              Recommended for uniform text blocks, book pages, and dense Sinhala/Tamil text
+                            </span>
+                          </div>
+                        </button>
                       </div>
                     </div>
 

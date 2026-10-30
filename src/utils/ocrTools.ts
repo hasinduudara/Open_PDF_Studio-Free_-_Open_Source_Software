@@ -1,9 +1,11 @@
-import { createWorker } from "tesseract.js";
+import { createWorker, PSM } from "tesseract.js";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 // Configure worker for Vite environment
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+export { PSM };
 
 export type OcrLanguage = "eng" | "sin" | "tam";
 
@@ -13,18 +15,20 @@ export interface OcrProgressInfo {
 }
 
 /**
- * Initializes a Tesseract worker, runs recognition on the image data,
- * terminates the worker, and returns the recognized text.
+ * Initializes a Tesseract worker, sets layout and page segmentation parameters,
+ * runs recognition on the image data, terminates the worker, and returns recognized text.
  *
  * @param imageDataUrl Base64 or Object URL of the image to recognize.
  * @param language OCR language code ('eng' for English, 'sin' for Sinhala, 'tam' for Tamil).
  * @param onProgress Optional progress callback to monitor OCR stages and progress (0.0 to 1.0).
+ * @param psm Page Segmentation Mode (defaults to PSM.AUTO - 3, or PSM.SINGLE_BLOCK - 6).
  * @returns Recognized text content.
  */
 export async function extractTextFromImage(
   imageDataUrl: string,
   language: "eng" | "sin" | "tam",
-  onProgress?: (info: OcrProgressInfo) => void
+  onProgress?: (info: OcrProgressInfo) => void,
+  psm: PSM = PSM.AUTO
 ): Promise<string> {
   if (!imageDataUrl) {
     throw new Error("No image data provided for OCR.");
@@ -42,6 +46,12 @@ export async function extractTextFromImage(
   });
 
   try {
+    // Configure Page Segmentation Mode and preserve interword spaces
+    await worker.setParameters({
+      tessedit_pageseg_mode: psm,
+      preserve_interword_spaces: "1",
+    });
+
     const result = await worker.recognize(imageDataUrl);
     return result.data.text || "";
   } finally {
@@ -51,19 +61,19 @@ export async function extractTextFromImage(
 
 /**
  * Renders a specific PDF page to a base64 PNG data URL using pdfjs-dist.
- * Applies high-resolution viewport scaling (scale 3.0 or 4.0) and fills a solid
+ * Applies high-resolution viewport scaling (scale 4.0) and fills a solid
  * white background before rendering to ensure high-DPI quality and eliminate transparency
  * which breaks Tesseract OCR character recognition.
  *
  * @param docOrData Active PDFDocumentProxy instance or raw Uint8Array document buffer.
  * @param pageNumber 1-based page number to render.
- * @param scale Quality scale factor (default 3.5 for high-DPI OCR recognition).
+ * @param scale Quality scale factor (default 4.0 for high-DPI OCR recognition).
  * @returns Base64 image data URL of the rendered page.
  */
 export async function renderPdfPageToDataUrl(
   docOrData: pdfjsLib.PDFDocumentProxy | Uint8Array,
   pageNumber: number,
-  scale: number = 3.5
+  scale: number = 4.0
 ): Promise<string> {
   let doc: pdfjsLib.PDFDocumentProxy;
 
