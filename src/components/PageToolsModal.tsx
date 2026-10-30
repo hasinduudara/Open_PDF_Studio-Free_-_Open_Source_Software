@@ -1177,7 +1177,7 @@ export default function PageToolsModal() {
       const dataUrl = await renderPdfPageToDataUrl(
         pdfDoc || activeTab.data,
         ocrSelectedPage,
-        2.0
+        3.5
       );
 
       setOcrStatus("Initializing Tesseract OCR worker...");

@@ -51,16 +51,19 @@ export async function extractTextFromImage(
 
 /**
  * Renders a specific PDF page to a base64 PNG data URL using pdfjs-dist.
+ * Applies high-resolution viewport scaling (scale 3.0 or 4.0) and fills a solid
+ * white background before rendering to ensure high-DPI quality and eliminate transparency
+ * which breaks Tesseract OCR character recognition.
  *
  * @param docOrData Active PDFDocumentProxy instance or raw Uint8Array document buffer.
  * @param pageNumber 1-based page number to render.
- * @param scale Quality scale factor (default 2.0 for higher OCR resolution).
+ * @param scale Quality scale factor (default 3.5 for high-DPI OCR recognition).
  * @returns Base64 image data URL of the rendered page.
  */
 export async function renderPdfPageToDataUrl(
   docOrData: pdfjsLib.PDFDocumentProxy | Uint8Array,
   pageNumber: number,
-  scale: number = 2.0
+  scale: number = 3.5
 ): Promise<string> {
   let doc: pdfjsLib.PDFDocumentProxy;
 
@@ -78,19 +81,20 @@ export async function renderPdfPageToDataUrl(
   canvas.width = Math.floor(viewport.width);
   canvas.height = Math.floor(viewport.height);
 
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) {
+  const context = canvas.getContext("2d");
+  if (!context) {
     throw new Error("Failed to create 2D canvas context for rendering.");
   }
 
-  // Draw clean white background behind text
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Pre-fill entire canvas with solid white background to eliminate transparency
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
 
   await page.render({
     canvas,
-    canvasContext: ctx,
+    canvasContext: context,
     viewport,
+    background: "#ffffff",
   }).promise;
 
   return canvas.toDataURL("image/png");
