@@ -28,6 +28,7 @@ import {
   Shield,
   FileSignature,
   RefreshCw,
+  ScanText,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
@@ -330,6 +331,17 @@ export default function Toolbar() {
         >
           <Shield className="h-3.5 w-3.5 text-emerald-400" />
           <span>Security</span>
+        </button>
+
+        {/* OCR Button */}
+        <button
+          type="button"
+          onClick={() => openPageTools("ocr")}
+          className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-2.5 py-1 font-medium text-neutral-200 transition hover:bg-neutral-700 active:bg-neutral-850 hover:text-white cursor-pointer"
+          title="Optical Character Recognition (OCR)"
+        >
+          <ScanText className="h-3.5 w-3.5 text-indigo-400" />
+          <span>OCR</span>
         </button>
       </div>
 

@@ -107,7 +107,8 @@ export type PageToolsTab =
   | "watermark"
   | "header-footer"
   | "convert"
-  | "security";
+  | "security"
+  | "ocr";
 
 /**
  * Zustand state and actions for managing multi-tab PDF documents, search,

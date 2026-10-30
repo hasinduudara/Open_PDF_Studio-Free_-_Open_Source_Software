@@ -39,6 +39,8 @@ import {
   Shield,
   Lock,
   Unlock,
+  ScanText,
+  Copy,
 } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
@@ -67,6 +69,11 @@ import {
   type CompressionQuality,
 } from "../utils/pdfConversionTools";
 import { protectPdf, removePassword } from "../utils/pdfSecurityTools";
+import {
+  extractTextFromImage,
+  renderPdfPageToDataUrl,
+  type OcrLanguage,
+} from "../utils/ocrTools";
 
 interface PageCardItem {
   id: string;
@@ -1133,6 +1140,100 @@ export default function PageToolsModal() {
     }
   }
 
+  // ==========================================
+  // TAB 8: OCR (OPTICAL CHARACTER RECOGNITION) STATE & HANDLERS
+  // ==========================================
+  const [ocrSelectedPage, setOcrSelectedPage] = useState<number>(1);
+  const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>("eng");
+  const [ocrResultText, setOcrResultText] = useState<string>("");
+  const [isOcrRunning, setIsOcrRunning] = useState<boolean>(false);
+  const [ocrStatus, setOcrStatus] = useState<string>("");
+  const [ocrProgress, setOcrProgress] = useState<number>(0);
+  const [ocrCopied, setOcrCopied] = useState<boolean>(false);
+
+  // Sync selected page when activeTab changes or modal opens
+  useEffect(() => {
+    if (activeTab) {
+      setOcrSelectedPage(activeTab.currentPage || 1);
+    }
+  }, [activeTab?.id, activeTab?.currentPage, isPageToolsOpen]);
+
+  /**
+   * Executes Tesseract OCR on the selected page and language.
+   */
+  async function handleRunOcr() {
+    if (!activeTab) {
+      setErrorMessage("Please open a PDF document to run OCR.");
+      return;
+    }
+
+    setIsOcrRunning(true);
+    setOcrStatus("Rendering page to image...");
+    setOcrProgress(15);
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    try {
+      const dataUrl = await renderPdfPageToDataUrl(
+        pdfDoc || activeTab.data,
+        ocrSelectedPage,
+        2.0
+      );
+
+      setOcrStatus("Initializing Tesseract OCR worker...");
+      setOcrProgress(30);
+
+      const recognized = await extractTextFromImage(
+        dataUrl,
+        ocrLanguage,
+        (info) => {
+          if (info.status === "recognizing text") {
+            setOcrStatus(`Recognizing text (${Math.round(info.progress * 100)}%)...`);
+            setOcrProgress(Math.min(95, Math.round(30 + info.progress * 65)));
+          } else {
+            setOcrStatus(`${info.status}...`);
+          }
+        }
+      );
+
+      setOcrResultText(recognized);
+      setOcrProgress(100);
+      setOcrStatus("Recognition complete");
+      const wordCount = recognized.trim().split(/\s+/).filter(Boolean).length;
+      setStatusMessage(`OCR completed: ${wordCount} words extracted.`);
+    } catch (err: any) {
+      console.error("OCR recognition error:", err);
+      setErrorMessage(err?.message || "Failed to extract text from page using OCR.");
+    } finally {
+      setIsOcrRunning(false);
+    }
+  }
+
+  function handleCopyOcrText() {
+    if (!ocrResultText) return;
+    navigator.clipboard.writeText(ocrResultText);
+    setOcrCopied(true);
+    setTimeout(() => setOcrCopied(false), 2000);
+  }
+
+  async function handleSaveOcrText() {
+    if (!ocrResultText || !activeTab) return;
+    try {
+      const defaultName = `${activeTab.name.replace(/\.pdf$/i, "")}_page_${ocrSelectedPage}_ocr.txt`;
+      const savePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: "Text File", extensions: ["txt"] }],
+      });
+      if (savePath) {
+        const encoder = new TextEncoder();
+        await writeFile(savePath, encoder.encode(ocrResultText));
+        setStatusMessage("Text file saved successfully!");
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Failed to save text file.");
+    }
+  }
+
   if (!isPageToolsOpen) {
     return null;
   }
@@ -1278,6 +1379,23 @@ export default function PageToolsModal() {
             >
               <Shield className="h-3.5 w-3.5 text-emerald-400" />
               <span>Security</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentTab("ocr");
+                setErrorMessage(null);
+                setStatusMessage(null);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                currentTab === "ocr"
+                  ? "bg-neutral-800 text-white shadow-xs"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              <ScanText className="h-3.5 w-3.5 text-indigo-400" />
+              <span>OCR</span>
             </button>
           </div>
 
@@ -3285,6 +3403,263 @@ export default function PageToolsModal() {
                         <span>Remove Password & Save</span>
                       </button>
                     </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ========================================== */}
+          {/* TAB 8: OCR (OPTICAL CHARACTER RECOGNITION) */}
+          {/* ========================================== */}
+          {currentTab === "ocr" && (
+            <div className="flex-1 flex flex-col overflow-y-auto p-6">
+              {!activeTab ? (
+                <div className="flex flex-1 flex-col items-center justify-center text-center p-8 my-auto">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-neutral-400 ring-1 ring-neutral-700">
+                    <ScanText className="h-7 w-7 text-indigo-400" />
+                  </div>
+                  <h3 className="text-base font-semibold text-neutral-200">
+                    No active PDF document
+                  </h3>
+                  <p className="mt-1 text-xs text-neutral-400 max-w-sm">
+                    Open a PDF document first in Open PDF Studio to recognize and extract text using OCR.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentTab("merge")}
+                    className="mt-4 rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 cursor-pointer"
+                  >
+                    Switch to Merge Tools
+                  </button>
+                </div>
+              ) : (
+                <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col space-y-6">
+                  {/* Top Configuration Card */}
+                  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/60 p-5 shadow-sm space-y-5">
+                    <div className="flex items-center justify-between border-b border-neutral-800/80 pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20">
+                          <ScanText className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-neutral-100">
+                            Optical Character Recognition (OCR)
+                          </h4>
+                          <p className="text-[11px] text-neutral-400">
+                            Extract text from scanned PDF pages with multilingual Tesseract OCR
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Run OCR Button */}
+                      <button
+                        type="button"
+                        onClick={handleRunOcr}
+                        disabled={isOcrRunning}
+                        className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        {isOcrRunning ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin text-white" />
+                            <span>Processing OCR...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ScanText className="h-4 w-4" />
+                            <span>Run OCR</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {/* Page Selector */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-medium text-neutral-300">
+                          Select Document Page
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setOcrSelectedPage((p) => Math.max(1, p - 1))}
+                            disabled={ocrSelectedPage <= 1 || isOcrRunning}
+                            className="rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-neutral-300 hover:bg-neutral-700 disabled:opacity-40 cursor-pointer"
+                            title="Previous Page"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+
+                          <div className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5">
+                            <span className="text-xs text-neutral-400">Page</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={activeTab.numPages || 1}
+                              value={ocrSelectedPage}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                if (!isNaN(val)) {
+                                  setOcrSelectedPage(Math.max(1, Math.min(activeTab.numPages || 1, val)));
+                                }
+                              }}
+                              disabled={isOcrRunning}
+                              className="w-12 text-center text-xs font-medium text-white bg-transparent outline-none border-b border-neutral-600 focus:border-indigo-400"
+                            />
+                            <span className="text-xs text-neutral-400">of {activeTab.numPages}</span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setOcrSelectedPage((p) => Math.min(activeTab.numPages || 1, p + 1))}
+                            disabled={ocrSelectedPage >= (activeTab.numPages || 1) || isOcrRunning}
+                            className="rounded-lg border border-neutral-700 bg-neutral-800 p-2 text-neutral-300 hover:bg-neutral-700 disabled:opacity-40 cursor-pointer"
+                            title="Next Page"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+
+                          {activeTab.currentPage && activeTab.currentPage !== ocrSelectedPage && (
+                            <button
+                              type="button"
+                              onClick={() => setOcrSelectedPage(activeTab.currentPage)}
+                              disabled={isOcrRunning}
+                              className="rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1.5 text-[11px] text-neutral-300 hover:bg-neutral-700 cursor-pointer"
+                            >
+                              Current ({activeTab.currentPage})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Language Selector */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-medium text-neutral-300">
+                          OCR Recognition Language
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { code: "eng" as const, label: "English", native: "English" },
+                            { code: "sin" as const, label: "Sinhala", native: "සිංහල" },
+                            { code: "tam" as const, label: "Tamil", native: "தமிழ்" },
+                          ].map((lang) => (
+                            <button
+                              key={lang.code}
+                              type="button"
+                              onClick={() => setOcrLanguage(lang.code)}
+                              disabled={isOcrRunning}
+                              className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                                ocrLanguage === lang.code
+                                  ? "border-indigo-500 bg-indigo-500/10 text-white shadow-xs"
+                                  : "border-neutral-800 bg-neutral-950/70 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                              }`}
+                            >
+                              <span className="text-xs font-semibold">{lang.label}</span>
+                              <span className="text-[10px] opacity-75">{lang.native}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Progress Indicator when running */}
+                    {isOcrRunning && (
+                      <div className="rounded-xl border border-indigo-900/60 bg-indigo-950/30 p-3.5 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-2 text-indigo-300 font-medium">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {ocrStatus || "Running optical character recognition..."}
+                          </span>
+                          <span className="font-mono text-indigo-400 text-[11px]">{ocrProgress}%</span>
+                        </div>
+                        <div className="w-full bg-neutral-800 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="bg-indigo-500 h-full transition-all duration-300 rounded-full"
+                            style={{ width: `${ocrProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Output Textarea Card */}
+                  <div className="flex flex-1 flex-col rounded-2xl border border-neutral-800 bg-neutral-950/60 p-5 shadow-sm space-y-3 min-h-[340px]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
+                          Extracted Text
+                        </h4>
+                        {ocrResultText && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+                            <span className="rounded bg-neutral-800 px-1.5 py-0.5">
+                              {ocrResultText.trim().split(/\s+/).filter(Boolean).length} words
+                            </span>
+                            <span className="rounded bg-neutral-800 px-1.5 py-0.5">
+                              {ocrResultText.length} characters
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Text Actions */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCopyOcrText}
+                          disabled={!ocrResultText || isOcrRunning}
+                          className="flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs font-medium text-neutral-200 transition hover:bg-neutral-700 hover:text-white disabled:opacity-40 cursor-pointer"
+                          title="Copy to clipboard"
+                        >
+                          {ocrCopied ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 text-green-400" />
+                              <span className="text-green-400">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleSaveOcrText}
+                          disabled={!ocrResultText || isOcrRunning}
+                          className="flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs font-medium text-neutral-200 transition hover:bg-neutral-700 hover:text-white disabled:opacity-40 cursor-pointer"
+                          title="Save as .txt file"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Save .txt</span>
+                        </button>
+
+                        {ocrResultText && (
+                          <button
+                            type="button"
+                            onClick={() => setOcrResultText("")}
+                            disabled={isOcrRunning}
+                            className="rounded-lg p-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors cursor-pointer"
+                            title="Clear recognized text"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <textarea
+                      value={ocrResultText}
+                      onChange={(e) => setOcrResultText(e.target.value)}
+                      placeholder={
+                        isOcrRunning
+                          ? "Recognizing text... please wait..."
+                          : "Extracted text will appear here. Choose a page and language, then click 'Run OCR' to begin."
+                      }
+                      rows={12}
+                      spellCheck={false}
+                      className="flex-1 w-full rounded-xl border border-neutral-800 bg-neutral-900/80 p-4 font-mono text-xs text-neutral-100 placeholder-neutral-500 outline-none focus:border-indigo-500 leading-relaxed resize-none transition-colors"
+                    />
                   </div>
                 </div>
               )}
